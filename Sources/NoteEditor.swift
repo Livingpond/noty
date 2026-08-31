@@ -235,7 +235,11 @@ struct NoteTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let tv = scroll.documentView as? NSTextView else { return }
-        if tv.string != text {
+        // Never replace the string while an IME owns a marked-text range.
+        // SwiftUI can update this view from the autosave publisher while a
+        // Chinese/Japanese composition is still active; assigning `string`
+        // then discards the composition and makes typed text appear to vanish.
+        if !tv.hasMarkedText(), tv.string != text {
             tv.string = text
             Self.styleTasks(tv, ink: ink, size: fontSize)
         }
@@ -256,6 +260,11 @@ struct NoteTextView: NSViewRepresentable {
     /// inserted in the *previous* font and immediately rewritten, which reads as
     /// the text jumping under the cursor after a font or size change.
     static func styleTasks(_ tv: NSTextView, ink: NSColor, size: CGFloat = 13.5) {
+        // TextKit mutations and selection restoration are not safe while the
+        // input method is composing marked text. The next textDidChange after
+        // the composition is committed will style the complete document.
+        guard !tv.hasMarkedText() else { return }
+
         let font = bodyFont(size)
         tv.typingAttributes = [.font: font, .foregroundColor: ink]
 
