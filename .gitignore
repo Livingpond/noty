@@ -3,5 +3,6 @@ build/
 *.zip
 .DS_Store
 Sparkle/
+Resources/Fonts/
 sparkle_keys/
 appcast.xml.bak
