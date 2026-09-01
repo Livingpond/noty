@@ -47,6 +47,15 @@ Right-click the pill → **Deck style**:
 The open note carries its own tab along as a left gutter, separated by a dashed
 rule, so it reads as growing out of the deck rather than floating beside it.
 
+**Deck size** scales every metric off one multiplier — tab width, the lap between
+tabs, the label type, the chips and the resting pill — so the deck grows without
+drifting out of proportion with itself. Settings → Deck → *Size* (70–180%), or
+right-click the pill → *Deck size* for the four presets.
+
+**Keep deck open** makes the fan the resting state instead of the pill, so the
+tabs and their labels stay on the edge without being hovered first. Off by
+default; notes still open, close and idle away exactly as before.
+
 ## Shortcuts
 
 All of these are listed in Settings (`⌘,`), and the first four can be rebound
@@ -69,6 +78,7 @@ Inside a note:
 | `⌘T` | turn the current line into a task, or strip the checkbox off |
 | `⌘⌫` | delete, with ten seconds to undo |
 | `⇧⌘A` | archive the note you are looking at |
+| — | every shortcut here can be rebound in Settings |
 | `⌘P` | pin the note so it stays open |
 | `⌃+` / `⌃-` | bigger / smaller note text |
 
@@ -93,21 +103,33 @@ import reads that back. All Notes shows a `done/total` count per note.
   in All Notes → Archive, restorable at any time.
 - **All Notes** (`⌥⌘A`) — one window, search across every note body and title,
   with an editable detail pane.
-- **Multi-display** — each screen gets its own dormant pill on its right edge.
-  The deck opens on whichever screen the pointer enters and the others stay shut.
-  Displays are tracked by `CGDirectDisplayID`, so hot-plugging rebuilds the decks.
+- **Multi-display & relocation** — show the deck on all displays, only the main
+  screen, or a specific monitor. Hold `⌥ Option` and drag the pill to dock it to
+  any edge, height, or display. Displays are tracked by `CGDirectDisplayID`, so
+  hot-plugging rebuilds the decks with graceful fallback.
 - **Over full-screen apps** — right-click the pill → *Show over full-screen apps*.
   This raises the panel to `.statusBar` level; `.floating` alone does not draw
   over a full-screen space.
 - **Autosave** 250 ms after you stop typing, and again on close.
-- **Settings** (`⌘,`, or right-click the pill). Rebind the shortcuts, pick the
-  note face and size, set how far from the edge the pointer wakes the deck,
-  and switch Markdown styling on or off. Everything applies immediately.
+- **Settings** (`⌘,`, the cog under the deck's `+`, or right-click the pill) —
+  four tabs. *Shortcuts* rebinds all twelve. *Deck* covers style, size, which
+  display carries it, the edge, how far from it the pointer wakes the deck, and
+  whether the tabs stay out. *Notes* has the face, text size, note size and
+  Markdown. *Updates* shows the version, when it last checked, and checks now.
+  Everything applies immediately.
+- **Open on hover.** Off by default: turn it on and resting the pointer on a tab
+  opens that note without a click.
 - **Markdown as you type.** `# headings`, `**bold**`, `*italic*`, `` `code` ``,
-  `~~struck~~`, `> quotes` and `- bullets` are styled in place. The markers are
-  dimmed rather than hidden, so the stored text is exactly what you typed and
-  exports unchanged.
-- **Drag to reorder.** Press and hold a tab, then drag it up or down the deck.
+  `~~struck~~`, `> quotes`, `- bullets` and `[links](https://example.com)` are
+  styled in place. Markers are hidden on every line but the one the caret is on,
+  which shows them dimmed so they can still be edited — the stored text is
+  exactly what you typed and exports unchanged.
+- **⌘-click a link to open it.** A plain click still places the caret, since a
+  note is a thing you edit first. Only `http`, `https` and `mailto` are ever
+  made clickable; anything else is styled and inert, so an imported note can
+  never turn into a launcher.
+- **Drag to reorder.** Drag a tab up or down and the others step aside to show
+  where it will land.
 - **Pin a note to keep it open.** The pin in a note's header (or `⌘P`) stops it
   being dismissed by anything you did not aim at it — clicking away in another
   app, or leaving it idle. Esc and Close still close it. Pinned tabs carry a dot,
@@ -155,6 +177,7 @@ and macOS 15+.
 ./build.sh                   # release build → build/Noty.app
 ./build.sh debug             # fast, unoptimised
 ./build.sh release run       # build, then relaunch
+./scripts/test-editor.sh     # focused editor range/style/input regression checks
 open build/Noty.app
 ```
 
@@ -164,15 +187,50 @@ open build/Noty.app
 Sparkle is optional. Without `Sparkle/Sparkle.framework` the app still builds —
 `Updater.swift` compiles to a stub and the update menu says so.
 
+### Branches
+
+`dev` is where work lands — every pull request targets it, and CI builds it.
+`main` is the release branch: **merging `dev` into `main` is what cuts a
+release**, so nothing reaches `main` until it has been tried.
+
 ### Releasing
 
 ```sh
-git tag v1.0.1 && git push origin v1.0.1
+git checkout main && git merge --no-ff dev -m "release: 1.2.0"
+git push origin main
 ```
 
 That fires `.github/workflows/release.yml`, which builds the app, packages a
 DMG, signs it with the EdDSA key, writes `appcast.xml`, publishes a GitHub
 Release and commits the appcast so installed copies can see the update.
+
+The version comes from **`release: X.Y.Z`** anywhere in the merge commit
+message. Leave it out and the patch is bumped from the newest tag, which is
+what a hotfix wants. A version that is already tagged is a no-op, so re-running
+the job is safe.
+
+Release notes are written by `scripts/make-release-notes.sh` from the pull
+requests the release actually contains — matched by whether their merge commit
+is reachable, not by date, since work merged into `dev` sits unreleased until
+`dev` lands. Every one of them is listed with a link and its author, on the
+release page and in the Sparkle update dialog. Run it yourself to see what the
+next release will say:
+
+```sh
+VERSION=1.2.0 ./scripts/make-release-notes.sh
+```
+
+Work that ships without a pull request of its own being merged — a cherry-pick,
+or a branch only part of which was taken — is credited with a trailer on the
+commit that takes it, which the same script turns into a **Thanks** section:
+
+```
+Thanks-to: @handle — what it was for
+```
+
+Documentation, the site, the media and the appcast are excluded from the
+trigger, so a README push to `main` never cuts a release. `workflow_dispatch`
+with a version is the manual escape hatch.
 
 It needs one repository secret, **`SPARKLE_PRIVATE_KEY`** — the contents of the
 key `scripts/fetch-sparkle.sh`'s toolchain generated. The matching public key is

@@ -37,7 +37,8 @@ struct DeckLayout {
         guard count > 0 else { return 0 }
         return CGFloat(count - 1) * pitch + itemHeight
             + (hasMore ? moreGap + moreHeight : 0)
-            + DeckGeom.plusGap + DeckGeom.plusSize
+            + DeckGeom.plusGap + DeckGeom.plusSize      // new note
+            + DeckGeom.cogGap + DeckGeom.cogSize        // settings
     }
 
     var top: CGFloat { max(12, (panelHeight - stackHeight) / 2) }
@@ -53,32 +54,38 @@ struct DeckLayout {
 }
 
 enum DeckGeom {
+    /// Every length below is expressed at 100% and passed through `s(_:)`, so one
+    /// preference resizes the deck as a whole. Rounding to whole points keeps the
+    /// shingled tabs from landing on half pixels and showing a seam.
+    static var scale: CGFloat { CGFloat(Settings.deckScale) }
+    private static func s(_ v: CGFloat) -> CGFloat { (v * scale).rounded() }
+
     // Rest — a 12 pt pill of colour dashes
-    static let pillWidth: CGFloat = 12
-    static let pillTouchWidth: CGFloat = 14
-    static let dashHeight: CGFloat = 14
-    static let dashWidth: CGFloat = 7
-    static let dashGap: CGFloat = 5
-    static let pillPad: CGFloat = 7
+    static var pillWidth: CGFloat { s(12) }
+    static var pillTouchWidth: CGFloat { s(14) }
+    static var dashHeight: CGFloat { s(14) }
+    static var dashWidth: CGFloat { s(7) }
+    static var dashGap: CGFloat { s(5) }
+    static var pillPad: CGFloat { s(7) }
     static let maxDashes = 14
 
     // Fan
-    static let tabWidth: CGFloat = 30
-    static let tabHeightMax: CGFloat = 118
-    static let tabHeightMin: CGFloat = 58
-    static let tabGap: CGFloat = 7
+    static var tabWidth: CGFloat { s(30) }
+    static var tabGap: CGFloat { s(7) }
     /// How far the next tab laps over the one before it.
-    static let tabLap: CGFloat = 40
-    static let pitchMin: CGFloat = 56
-    static let pitchMax: CGFloat = 106
+    static var tabLap: CGFloat { s(40) }
+    static var pitchMin: CGFloat { s(56) }
+    static var pitchMax: CGFloat { s(106) }
+    /// The smallest pitch the guard rail may squeeze a tab down to.
+    static var pitchFloor: CGFloat { s(36) }
     /// The strip is the label plus this much; the label is drawn inside it with
     /// `labelInset`. Keeping the two different is what leaves the last glyph room
     /// — sizing the strip to exactly the text width truncates on rounding.
-    static let labelPad: CGFloat = 20
-    static let labelInset: CGFloat = 12
+    static var labelPad: CGFloat { s(20) }
+    static var labelInset: CGFloat { s(12) }
     /// Tabs and notes are drawn a little past the screen edge so their lean cannot
     /// open a wedge of background between them and the edge they are stuck to.
-    static let bleed: CGFloat = 14
+    static var bleed: CGFloat { s(14) }
 
     /// Everything leans the same way — a deck of tabs at matching angles reads as
     /// deliberate, where per-note angles just look scattered.
@@ -87,35 +94,52 @@ enum DeckGeom {
 
     /// Rendered width of a tab label, used to size the strip that shows it.
     /// Must use the same face the tab draws with or the strip will not fit.
+    ///
+    /// Measured once per title per face: the deck asks for this on every layout
+    /// pass, and text measurement is not cheap enough to repeat that often.
+    private static var labelCache: [String: CGFloat] = [:]
+
     static func labelWidth(_ title: String) -> CGFloat {
         let text = title.uppercased() as NSString
         guard text.length > 0 else { return 0 }
-        return text.size(withAttributes: [.font: Ink.tabNSFont]).width
+        let font = Ink.tabNSFont
+        let key = "\(font.fontName)|\(font.pointSize)|\(text)"
+        if let hit = labelCache[key] { return hit }
+        let w = text.size(withAttributes: [.font: font]).width
             + Ink.tabTracking * CGFloat(text.length)
+        if labelCache.count > 400 { labelCache.removeAll(keepingCapacity: true) }
+        labelCache[key] = w
+        return w
     }
-    static let chipWidth: CGFloat = 30
-    static let chipHeight: CGFloat = 24
-    static let chipGap: CGFloat = 6
-    static let fanWidth: CGFloat = 50
-    static let plusSize: CGFloat = 28
-    static let plusInset: CGFloat = 14
-    static let plusGap: CGFloat = 12
-    static let moreTabHeight: CGFloat = 34
+    static var chipWidth: CGFloat { s(30) }
+    static var chipHeight: CGFloat { s(24) }
+    static var chipGap: CGFloat { s(6) }
+    static var fanWidth: CGFloat { s(50) }
+    static var plusSize: CGFloat { s(28) }
+    static var plusGap: CGFloat { s(12) }
+    // The cog sits under the plus, so it has to grow with it.
+    static var cogSize: CGFloat { s(24) }
+    static var cogGap: CGFloat { s(8) }
+
+    static var moreTabHeight: CGFloat { s(34) }
 
     /// The deck may claim at most this much of the screen before tabs start shrinking.
     static let heightBudget: CGFloat = 0.68
 
     /// The open note carries its own tab as a left gutter, so it reads as
-    /// growing out of the deck rather than floating beside it.
-    static let gutterWidth: CGFloat = 30
+    /// growing out of the deck rather than floating beside it. It matches the tab
+    /// it grew from, so it scales with one.
+    static var gutterWidth: CGFloat { tabWidth }
 
     // Expanded — the note slides clear of the deck
-    static let editorWidth: CGFloat = 460
-    static let editorHeight: CGFloat = 380
+    static var editorWidth: CGFloat { Settings.noteSize.width }
+    static var editorHeight: CGFloat { Settings.noteSize.height }
     /// The open note runs to the screen edge and covers its own tab, exactly as a
     /// pulled sticky would — so there is no gap between note and deck to tune.
-    /// A little wider than the note so the lean has somewhere to go.
+    /// A little wider than the note so the lean has somewhere to go, and it grows
+    /// with the note when the corner is dragged.
     static var expandedWidth: CGFloat { max(fanWidth, editorWidth) + 22 }
+
 
     static func pillHeight(noteCount: Int) -> CGFloat {
         let shown = min(noteCount, maxDashes)
@@ -140,7 +164,7 @@ enum DeckGeom {
             let reserved = hasMore ? moreTabHeight + tabGap : 0
             let budget = panelHeight * heightBudget - reserved
             if CGFloat(n) * pitch + tabLap > budget {
-                pitch = max(36, (budget - tabLap) / CGFloat(n))
+                pitch = max(pitchFloor, (budget - tabLap) / CGFloat(n))
             }
             return DeckLayout(itemHeight: pitch + tabLap, pitch: pitch,
                               moreGap: tabGap, moreHeight: moreTabHeight,
@@ -198,6 +222,14 @@ final class DeckContentView: NSView {
     override func mouseEntered(with event: NSEvent) { controller?.pointerEntered() }
     override func mouseExited(with event: NSEvent) { controller?.pointerExited() }
 
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.option), controller?.canBeginPillDrag == true {
+            controller?.beginPillDrag(with: event)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
     override func rightMouseDown(with event: NSEvent) {
         controller?.showContextMenu(at: event)
     }
@@ -219,6 +251,16 @@ final class DeckHostingView<Content: View>: NSHostingView<Content> {
 
     @MainActor @preconcurrency required dynamic init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.option),
+           let content = superview as? DeckContentView,
+           content.controller?.canBeginPillDrag == true {
+            content.controller?.beginPillDrag(with: event)
+            return
+        }
+        super.mouseDown(with: event)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

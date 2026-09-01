@@ -36,9 +36,22 @@ final class DeckModel: ObservableObject {
 
     // Mirrored from Settings so SwiftUI re-renders when a preference flips.
     @Published var style: DeckStyle = Settings.deckStyle
+    @Published var alwaysShown: Bool = Settings.deckAlwaysShown
+    /// DeckGeom reads the scale straight from Settings; this mirror exists purely
+    /// so a change to it invalidates the views that measure against it.
+    @Published var scale: Double = Settings.deckScale
     @Published var onLeftEdge: Bool = Settings.deckOnLeftEdge
     @Published var fontSize: Double = Settings.noteFontSize
     @Published var markdown: Bool = Settings.markdownStyling
+    @Published var noteSize = Settings.noteSize
+    @Published var openOnHover: Bool = Settings.openOnHover
+    /// Set while a tab is being dragged. The deck must not tidy itself away
+    /// mid-drag just because the pointer strayed out of the edge strip.
+    @Published var isDragging = false
+    /// The note's height at the moment it opened. Its top is anchored from this
+    /// and nothing else — recomputing the position from a height that changes
+    /// mid-resize makes the note jump the instant the drag ends.
+    @Published var openedHeight: CGFloat = Settings.noteSize.height
     /// Published by the controller the instant the panel is resized. Reading this
     /// instead of a GeometryReader matters: the reader reports the *previous* size
     /// for a frame or two after a resize, and the deck lays out against the wrong
@@ -47,9 +60,13 @@ final class DeckModel: ObservableObject {
 
     func syncPreferences() {
         style = Settings.deckStyle
+        alwaysShown = Settings.deckAlwaysShown
+        scale = Settings.deckScale
         onLeftEdge = Settings.deckOnLeftEdge
         fontSize = Settings.noteFontSize
         markdown = Settings.markdownStyling
+        noteSize = Settings.noteSize
+        openOnHover = Settings.openOnHover
     }
 }
 
@@ -75,6 +92,10 @@ final class DeckController: NSObject {
 
     weak var manager: DeckManager?
 
+    /// Where the deck sits when nothing is happening: the pill, or the tabs
+    /// themselves once the user has asked for them to stay put.
+    private var restingState: DeckState { Settings.deckAlwaysShown ? .fan : .rest }
+
     var screen: NSScreen? {
         NSScreen.screens.first {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID
@@ -95,6 +116,7 @@ final class DeckController: NSObject {
         container.addSubview(hosting)
 
         panel.contentView = container
+        model.state = restingState
         layout()
         panel.orderFrontRegardless()
 
@@ -132,13 +154,17 @@ final class DeckController: NSObject {
             // The dormant panel is the detection strip: the pill is drawn at the
             // edge and the rest of the width is transparent and click-through.
             let w = max(DeckGeom.pillWidth + 2, CGFloat(Settings.edgeWidth))
+            let availableH = max(1, vis.height - h)
+            let y = vis.minY + availableH * Settings.deckYRatio
             frame = NSRect(x: onRight ? full.maxX - w : full.minX,
-                           y: vis.midY - h / 2, width: w, height: h)
+                           y: round(y), width: w, height: h)
         case .fan, .expanded:
             // Same width for both. Resizing the panel as a note opens makes the
             // window resize and SwiftUI's relayout land in different frames, and
             // for one frame the deck draws against the panel's far edge — which
             // looks exactly like the note flying in from mid-screen.
+            // Width follows the note's live size, so a resize drag does not have
+            // to round-trip through UserDefaults to widen the panel.
             let w = DeckGeom.expandedWidth
             frame = NSRect(x: onRight ? full.maxX - w : full.minX,
                            y: vis.minY, width: w, height: vis.height)
@@ -195,8 +221,11 @@ final class DeckController: NSObject {
         } else {
             removeKeyMonitor(); removeOutsideMonitor()
         }
-        if new == .rest { stopIdleWatch() } else { startIdleWatch() }
-        if new == .rest { model.showAll = false; model.findQuery = nil }
+        // A deck that is already at rest has nothing to tidy away, so the poll
+        // only runs above the resting state — with the tabs kept open, that means
+        // it runs for an open note and not for the fan.
+        if new.rank > restingState.rank { startIdleWatch() } else { stopIdleWatch() }
+        if new == restingState { model.showAll = false; model.findQuery = nil }
     }
 
     /// Anything the user does keeps the deck awake.
@@ -214,9 +243,11 @@ final class DeckController: NSObject {
             let now = NSEvent.mouseLocation
             // The panel is wider than the deck, so the tracking area cannot tell us
             // the pointer has left the tabs; compare against the strip instead.
-            if self.model.state == .fan, !self.hotZone.contains(now) {
+            if self.model.state == .fan, !self.model.isDragging,
+               !self.hotZone.contains(now) {
                 self.collapse(); return
             }
+            if self.model.isDragging { self.lastActivity = Date(); return }
             if abs(now.x - self.lastPointer.x) > 2 || abs(now.y - self.lastPointer.y) > 2 {
                 self.lastPointer = now
                 self.lastActivity = Date()
@@ -242,9 +273,90 @@ final class DeckController: NSObject {
         exitWork?.cancel(); exitWork = nil
         shrinkWork?.cancel(); shrinkWork = nil
         DeckLog.line("pointerEntered state=\(model.state) panel=\(Int(panel.frame.width))")
+        guard !NSEvent.modifierFlags.contains(.option) else { return }
         guard model.state == .rest else { layout(); return }
         manager?.deckDidActivate(self)
         setState(.fan)
+    }
+
+    /// Whether an ⌥-click should pick the deck up. "Keep the deck open" makes
+    /// the fan the resting state, and the pill is then never the thing on screen
+    /// to grab — without this the two preferences cancel each other out.
+    var canBeginPillDrag: Bool { model.state == restingState }
+
+    /// Interactive drag triggered when clicking the pill with ⌥ Option held.
+    /// Moves the pill across screens and snaps to the nearest edge (left/right) at the cursor's height.
+    func beginPillDrag(with initialEvent: NSEvent) {
+        exitWork?.cancel(); exitWork = nil
+        shrinkWork?.cancel(); shrinkWork = nil
+
+        if model.state != .rest {
+            setState(.rest)
+        }
+
+        model.isDragging = true
+        noteActivity()
+        NSCursor.closedHand.push()
+
+        defer {
+            NSCursor.pop()
+            model.isDragging = false
+            refreshLevel()
+        }
+
+        var targetScreen: NSScreen = self.screen ?? NSScreen.main ?? NSScreen.screens.first!
+        var targetOnLeft = Settings.deckOnLeftEdge
+        var targetYRatio = Settings.deckYRatio
+
+        let mask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp, .flagsChanged]
+
+        while true {
+            // A nested modal loop on the main thread: waiting on .distantFuture
+            // wedges the whole app if the mouse-up is ever delivered elsewhere,
+            // so poll and check the button instead.
+            guard let event = NSApp.nextEvent(matching: mask,
+                                              until: Date(timeIntervalSinceNow: 0.1),
+                                              inMode: .eventTracking, dequeue: true) else {
+                if NSEvent.pressedMouseButtons & 1 == 0 { break }
+                continue
+            }
+            if event.type == .leftMouseUp {
+                break
+            }
+
+            let p = NSEvent.mouseLocation
+            if let s = NSScreen.screens.first(where: { $0.frame.contains(p) }) {
+                targetScreen = s
+            }
+
+            let full = targetScreen.frame
+            let vis = targetScreen.visibleFrame
+            targetOnLeft = p.x < full.midX
+
+            let pillH = DeckGeom.pillHeight(noteCount: max(1, NoteStore.shared.active.count))
+            let availableH = max(1, vis.height - pillH)
+            let rawY = p.y - pillH / 2
+            let clampedY = min(max(vis.minY, rawY), vis.maxY - pillH)
+            targetYRatio = (clampedY - vis.minY) / availableH
+
+            let w = max(DeckGeom.pillWidth + 2, CGFloat(Settings.edgeWidth))
+            let liveFrame = NSRect(x: targetOnLeft ? full.minX : full.maxX - w,
+                                   y: round(clampedY),
+                                   width: w,
+                                   height: pillH)
+            panel.setFrame(liveFrame, display: true, animate: false)
+        }
+
+        Settings.deckOnLeftEdge = targetOnLeft
+        Settings.deckYRatio = targetYRatio
+        // Only follow the drag across displays when the deck is already pinned to
+        // one. Doing it under "All Displays" would take the deck off every other
+        // screen as a side effect of nudging the pill up a bit.
+        if Settings.displayTarget != "all",
+           let id = (targetScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value {
+            Settings.displayTarget = "id:\(id)"
+        }
+        (NSApp.delegate as? AppDelegate)?.refreshDecks()
     }
 
     /// The panel is wide enough to hold an open note, but the deck itself only
@@ -259,14 +371,14 @@ final class DeckController: NSObject {
     }
 
     func pointerExited() {
-        guard model.state == .fan else { return }   // an open note stays open until Esc
+        guard model.state == .fan, restingState != .fan else { return }   // an open note stays open until Esc
         // Tracking areas fire spuriously across a resize, so confirm the pointer really left.
         exitWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.model.state == .fan else { return }
+            guard let self, self.model.state == .fan, !self.model.isDragging else { return }
             if !self.hotZone.contains(NSEvent.mouseLocation) {
                 DeckLog.line("pointerExited confirmed")
-                self.setState(.rest)
+                self.setState(self.restingState)
             }
         }
         exitWork = work
@@ -275,6 +387,7 @@ final class DeckController: NSObject {
 
     func expand(_ id: String) {
         noteActivity()
+        model.openedHeight = Settings.noteSize.height
         manager?.deckDidActivate(self)
         setState(.expanded(id))
         NSApp.activate()
@@ -290,7 +403,7 @@ final class DeckController: NSObject {
             // If the pointer is already away from the edge, the deck follows it
             // shut on the next poll rather than hanging around.
         } else {
-            setState(.rest)
+            setState(restingState)
         }
     }
 
@@ -304,11 +417,30 @@ final class DeckController: NSObject {
     /// Dismiss the whole deck, note and tabs together.
     func dismiss() {
         let wasExpanded = model.state.expandedID != nil
-        setState(.rest)
+        setState(restingState)
         if wasExpanded { NSApp.deactivate() }
     }
 
-    func collapseToRest() { setState(.rest) }
+    func collapseToRest() { setState(restingState) }
+
+    /// Adopt a change to the preference: fan out, or fall back to the pill once
+    /// the pointer is off the deck. Called after Settings writes it.
+    func applyRestingState() {
+        switch model.state {
+        case .rest where restingState == .fan:
+            setState(.fan)
+        case .fan where restingState == .rest:
+            // The pointer may still be on the deck, and yanking the tabs out from
+            // under it reads as a glitch. Restart the idle poll instead and let it
+            // fold the deck away the moment the pointer leaves — without this the
+            // fan stays stuck open, because the poll is not running while the deck
+            // is at its resting state.
+            if hotZone.contains(NSEvent.mouseLocation) { startIdleWatch() }
+            else { setState(.rest) }
+        default:
+            break
+        }
+    }
 
     // MARK: Key handling for the expanded note
 
@@ -425,10 +557,56 @@ final class DeckController: NSObject {
         textItem.submenu = textMenu
         menu.addItem(textItem)
 
+        let sizeItem = NSMenuItem(title: "Deck size", action: nil, keyEquivalent: "")
+        let sizeMenu = NSMenu()
+        for entry in Settings.deckSizes {
+            let it = NSMenuItem(title: entry.name, action: #selector(AppDelegate.setDeckScale(_:)),
+                                keyEquivalent: "")
+            it.representedObject = entry.scale
+            it.state = abs(Settings.deckScale - entry.scale) < 0.01 ? .on : .off
+            sizeMenu.addItem(it)
+        }
+        sizeItem.submenu = sizeMenu
+        menu.addItem(sizeItem)
+
+        let keepOpen = NSMenuItem(title: "Keep deck open",
+                                  action: #selector(AppDelegate.toggleDeckAlwaysShown), keyEquivalent: "")
+        keepOpen.state = Settings.deckAlwaysShown ? .on : .off
+        menu.addItem(keepOpen)
+
         let leftEdge = NSMenuItem(title: "Dock deck to left edge",
                                   action: #selector(AppDelegate.toggleDeckEdge), keyEquivalent: "")
         leftEdge.state = Settings.deckOnLeftEdge ? .on : .off
         menu.addItem(leftEdge)
+
+        if NSScreen.screens.count > 1 {
+            let displayItem = NSMenuItem(title: "Display", action: nil, keyEquivalent: "")
+            let displayMenu = NSMenu()
+
+            let allItem = NSMenuItem(title: "All Displays", action: #selector(AppDelegate.setDisplayTarget(_:)), keyEquivalent: "")
+            allItem.representedObject = "all"
+            allItem.state = Settings.displayTarget == "all" ? .on : .off
+            displayMenu.addItem(allItem)
+
+            let mainItem = NSMenuItem(title: "Main Display", action: #selector(AppDelegate.setDisplayTarget(_:)), keyEquivalent: "")
+            mainItem.representedObject = "main"
+            mainItem.state = Settings.displayTarget == "main" ? .on : .off
+            displayMenu.addItem(mainItem)
+
+            displayMenu.addItem(.separator())
+
+            for screen in NSScreen.screens {
+                guard let id = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value else { continue }
+                let name = screen.localizedName
+                let title = screen == NSScreen.main ? "\(name) (Main)" : name
+                let it = NSMenuItem(title: title, action: #selector(AppDelegate.setDisplayTarget(_:)), keyEquivalent: "")
+                it.representedObject = "id:\(id)"
+                it.state = Settings.displayTarget == "id:\(id)" ? .on : .off
+                displayMenu.addItem(it)
+            }
+            displayItem.submenu = displayMenu
+            menu.addItem(displayItem)
+        }
 
         let updates = NSMenuItem(title: "Check for Updates…",
                                  action: #selector(AppDelegate.checkForUpdates), keyEquivalent: "")
@@ -473,7 +651,7 @@ final class DeckController: NSObject {
 
 // MARK: - Manager
 
-/// Keeps one deck alive per display and rebuilds the set when displays change.
+/// Keeps one deck alive per targeted display and rebuilds the set when displays or settings change.
 final class DeckManager {
     private(set) var decks: [CGDirectDisplayID: DeckController] = [:]
 
@@ -484,12 +662,44 @@ final class DeckManager {
             object: nil, queue: .main) { [weak self] _ in self?.rebuild() }
     }
 
-    func rebuild() {
-        let live = Set(NSScreen.screens.compactMap {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    private func targetDisplayIDs() -> Set<CGDirectDisplayID> {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return [] }
+
+        let screenMap: [CGDirectDisplayID: NSScreen] = Dictionary(uniqueKeysWithValues: screens.compactMap { s in
+            guard let id = (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value else { return nil }
+            return (id, s)
         })
-        for id in decks.keys where !live.contains(id) { decks.removeValue(forKey: id) }
-        for id in live where decks[id] == nil {
+
+        let mainID: CGDirectDisplayID = {
+            if let main = NSScreen.main,
+               let id = (main.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value {
+                return id
+            }
+            return screenMap.keys.first ?? CGMainDisplayID()
+        }()
+
+        let target = Settings.displayTarget
+        if target == "all" {
+            return Set(screenMap.keys)
+        } else if target == "main" {
+            return [mainID]
+        } else if target.hasPrefix("id:"), let id = UInt32(target.dropFirst(3)) {
+            if screenMap.keys.contains(id) {
+                return [id]
+            } else {
+                return [mainID]
+            }
+        }
+        return Set(screenMap.keys)
+    }
+
+    func rebuild() {
+        let targetIDs = targetDisplayIDs()
+        for id in Array(decks.keys) where !targetIDs.contains(id) {
+            decks.removeValue(forKey: id)
+        }
+        for id in targetIDs where decks[id] == nil {
             let d = DeckController(displayID: id)
             d.manager = self
             decks[id] = d
@@ -503,15 +713,19 @@ final class DeckManager {
     }
 
     func refreshAll() {
-        decks.values.forEach { $0.model.syncPreferences(); $0.refreshLevel(); $0.layout() }
+        rebuild()
+        decks.values.forEach {
+            $0.model.syncPreferences(); $0.refreshLevel(); $0.layout(); $0.applyRestingState()
+        }
     }
 
-    /// Deck on the screen holding the pointer, else the main screen's.
+    /// Deck on the screen holding the pointer, else the first available deck.
     var focused: DeckController? {
         let p = NSEvent.mouseLocation
         if let s = NSScreen.screens.first(where: { $0.frame.contains(p) }),
-           let id = (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value {
-            return decks[id]
+           let id = (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value,
+           let deck = decks[id] {
+            return deck
         }
         return decks.values.first
     }

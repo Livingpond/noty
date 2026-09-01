@@ -99,14 +99,25 @@ struct ShortcutField: NSViewRepresentable {
 
 final class SettingsModel: ObservableObject {
     @Published var deckStyle: DeckStyle { didSet { Settings.deckStyle = deckStyle; apply() } }
+    @Published var alwaysShown: Bool    { didSet { Settings.deckAlwaysShown = alwaysShown; apply() } }
+    @Published var deckScale: Double    { didSet { Settings.deckScale = deckScale; apply() } }
     @Published var onLeftEdge: Bool     { didSet { Settings.deckOnLeftEdge = onLeftEdge; apply() } }
+    @Published var displayTarget: String { didSet { Settings.displayTarget = displayTarget; apply() } }
+    @Published var screens: [NSScreen] = NSScreen.screens
     @Published var edgeWidth: Double    { didSet { Settings.edgeWidth = edgeWidth; apply() } }
     @Published var overFullScreen: Bool { didSet { Settings.showOverFullScreen = overFullScreen; apply() } }
     @Published var launchAtLogin: Bool  { didSet { Settings.launchAtLogin = launchAtLogin } }
 
+    @Published var autoUpdate: Bool {
+        didSet { guard !loading else { return }; Updater.shared.automaticallyChecks = autoUpdate }
+    }
+    @Published var updateStatus: String = ""
+
     @Published var fontName: String     { didSet { Settings.noteFontName = fontName; apply() } }
     @Published var fontSize: Double     { didSet { Settings.noteFontSize = fontSize; apply() } }
     @Published var markdown: Bool       { didSet { Settings.markdownStyling = markdown; apply() } }
+    @Published var noteSizeIndex: Int   { didSet { Settings.noteSizeIndex = noteSizeIndex; apply() } }
+    @Published var openOnHover: Bool    { didSet { Settings.openOnHover = openOnHover; apply() } }
 
     @Published var scNewNote: Shortcut  { didSet { Settings.scNewNote = scNewNote; HotKeys.shared.reload() } }
     @Published var scAllNotes: Shortcut { didSet { Settings.scAllNotes = scAllNotes; HotKeys.shared.reload() } }
@@ -126,13 +137,20 @@ final class SettingsModel: ObservableObject {
 
     init() {
         deckStyle = Settings.deckStyle
+        alwaysShown = Settings.deckAlwaysShown
+        deckScale = Settings.deckScale
         onLeftEdge = Settings.deckOnLeftEdge
+        displayTarget = Settings.displayTarget
+        screens = NSScreen.screens
         edgeWidth = Settings.edgeWidth
         overFullScreen = Settings.showOverFullScreen
         launchAtLogin = Settings.launchAtLogin
+        autoUpdate = Updater.available && Updater.shared.automaticallyChecks
         fontName = Settings.noteFontName
         fontSize = Settings.noteFontSize
         markdown = Settings.markdownStyling
+        noteSizeIndex = Settings.noteSizeIndex
+        openOnHover = Settings.openOnHover
         scNewNote = Settings.scNewNote
         scAllNotes = Settings.scAllNotes
         scArchive = Settings.scArchive
@@ -146,11 +164,41 @@ final class SettingsModel: ObservableObject {
         scBigger = Settings.scBigger
         scSmaller = Settings.scSmaller
         loading = false
+        refreshUpdateStatus()
+
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                self?.screens = NSScreen.screens
+            }
     }
 
     private func apply() {
         guard !loading else { return }
         (NSApp.delegate as? AppDelegate)?.refreshDecks()
+    }
+
+    func refreshUpdateStatus() {
+        guard Updater.available else {
+            updateStatus = "This build has no Sparkle framework, so it cannot update itself."
+            return
+        }
+        guard let last = Updater.shared.lastCheck else {
+            updateStatus = "No check yet."
+            return
+        }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        updateStatus = "Last checked \(f.localizedString(for: last, relativeTo: Date()))."
+    }
+
+    func checkForUpdatesNow() {
+        Updater.shared.checkForUpdates()
+        // Sparkle stamps the date when its own check finishes, not when it is
+        // asked, so the status line has to be read back a moment later.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.refreshUpdateStatus()
+        }
     }
 
     /// Warn about a combination already used by another Noty shortcut.
@@ -172,13 +220,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let model = SettingsModel()
 
+    func syncPreferences() {
+        model.displayTarget = Settings.displayTarget
+    }
+
     func show() {
         if window == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 620),
-                             styleMask: [.titled, .closable, .fullSizeContentView],
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+                             styleMask: [.titled, .closable],
                              backing: .buffered, defer: false)
             w.title = "Noty Settings"
-            w.titlebarAppearsTransparent = true
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.contentView = NSHostingView(rootView: SettingsView(model: model))
@@ -203,98 +254,211 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                group("Shortcuts", "Click a field and press the keys; ⌫ clears one.") {
-                    subhead("From any app")
-                    shortcutRow("New note", model.scNewNote, "new") { model.scNewNote = $0 }
-                    shortcutRow("All Notes", model.scAllNotes, "all") { model.scAllNotes = $0 }
-                    shortcutRow("Archive window", model.scArchive, "archive") { model.scArchive = $0 }
+        // One long scroll made twelve shortcut fields, nine deck controls and the
+        // note settings compete for the same eye. Tabs are what a Settings window
+        // is supposed to be, and they leave somewhere obvious to put updates.
+        TabView {
+            pane("Click a field and press the keys; ⌫ clears one.") { shortcutsTab }
+                .tabItem { Label("Shortcuts", systemImage: "command") }
+            pane("How the notes sit on the screen edge.") { deckTab }
+                .tabItem { Label("Deck", systemImage: "menucard") }
+            pane("Type and formatting inside a note.") { notesTab }
+                .tabItem { Label("Notes", systemImage: "textformat") }
+            pane("Noty fetches one file to see whether a newer version exists.") { updatesTab }
+                .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
+        }
+        .padding(14)
+        .frame(width: 600, height: 500)
+    }
 
-                    subhead("In an open note").padding(.top, 4)
-                    shortcutRow("Close", model.scClose, "close", bare: true) { model.scClose = $0 }
-                    shortcutRow("Archive this note", model.scArchiveNote, "archiveNote", bare: true) { model.scArchiveNote = $0 }
-                    shortcutRow("Delete", model.scDelete, "delete", bare: true) { model.scDelete = $0 }
-                    shortcutRow("Find in note", model.scFind, "find", bare: true) { model.scFind = $0 }
-                    shortcutRow("Toggle task", model.scTask, "task", bare: true) { model.scTask = $0 }
-                    shortcutRow("Pin", model.scPin, "pin", bare: true) { model.scPin = $0 }
-                    shortcutRow("Cycle colour", model.scColour, "colour", bare: true) { model.scColour = $0 }
-                    shortcutRow("Bigger text", model.scBigger, "bigger", bare: true) { model.scBigger = $0 }
-                    shortcutRow("Smaller text", model.scSmaller, "smaller", bare: true) { model.scSmaller = $0 }
+    @ViewBuilder
+    private var shortcutsTab: some View {
+        // Two columns: twelve stacked rows made the window scroll for
+        // what is really a reference table.
+        HStack(alignment: .top, spacing: 26) {
+            VStack(alignment: .leading, spacing: 7) {
+                subhead("From any app")
+                shortcutRow("New note", model.scNewNote, "new") { model.scNewNote = $0 }
+                shortcutRow("All Notes", model.scAllNotes, "all") { model.scAllNotes = $0 }
+                shortcutRow("Archive window", model.scArchive, "archive") { model.scArchive = $0 }
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                subhead("In an open note")
+                shortcutRow("Close", model.scClose, "close", bare: true) { model.scClose = $0 }
+                shortcutRow("Archive note", model.scArchiveNote, "archiveNote", bare: true) { model.scArchiveNote = $0 }
+                shortcutRow("Delete", model.scDelete, "delete", bare: true) { model.scDelete = $0 }
+                shortcutRow("Find", model.scFind, "find", bare: true) { model.scFind = $0 }
+                shortcutRow("Toggle task", model.scTask, "task", bare: true) { model.scTask = $0 }
+                shortcutRow("Pin", model.scPin, "pin", bare: true) { model.scPin = $0 }
+                shortcutRow("Cycle colour", model.scColour, "colour", bare: true) { model.scColour = $0 }
+                shortcutRow("Bigger text", model.scBigger, "bigger", bare: true) { model.scBigger = $0 }
+                shortcutRow("Smaller text", model.scSmaller, "smaller", bare: true) { model.scSmaller = $0 }
+            }
+        }
+        Text("In-note shortcuts only fire while a note is open, so a key with no modifier is fine there.")
+            .font(.system(size: 11)).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 2)
+    }
 
-                    Text("These only fire while a note is open, so a key with no modifier is fine here.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 2)
+    @ViewBuilder
+    private var deckTab: some View {
+        row("Style") {
+            Picker("", selection: $model.deckStyle) {
+                ForEach(DeckStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+            }.labelsHidden().pickerStyle(.segmented).frame(width: 240)
+        }
+        row("Size") {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 10) {
+                    Slider(value: $model.deckScale,
+                           in: Settings.deckScaleRange.lowerBound...Settings.deckScaleRange.upperBound,
+                           step: 0.05).frame(width: 210)
+                    Text("\(Int((model.deckScale * 100).rounded()))%")
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
                 }
-
-                group("Deck", "How the notes sit on the screen edge.") {
-                    row("Style") {
-                        Picker("", selection: $model.deckStyle) {
-                            ForEach(DeckStyle.allCases, id: \.self) { Text($0.title).tag($0) }
-                        }.labelsHidden().pickerStyle(.segmented).frame(width: 240)
-                    }
-                    row("Edge") {
-                        Picker("", selection: $model.onLeftEdge) {
-                            Text("Right").tag(false); Text("Left").tag(true)
-                        }.labelsHidden().pickerStyle(.segmented).frame(width: 160)
-                    }
-                    row("Detection area") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Picker("", selection: $model.edgeWidth) {
-                                ForEach(Settings.edgeWidths, id: \.width) { Text($0.name).tag($0.width) }
-                            }.labelsHidden().pickerStyle(.segmented).frame(width: 300)
-                            Text("How far from the edge the pointer wakes the deck — \(Int(model.edgeWidth)) pt.")
-                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Scales the tabs, their labels, the chips and the resting pill together.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        }
+        if model.screens.count > 1 {
+            row("Display") {
+                Picker("", selection: $model.displayTarget) {
+                    Text("All Displays").tag("all")
+                    Text("Main Display").tag("main")
+                    ForEach(model.screens, id: \.self) { s in
+                        if let id = (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value {
+                            let name = s.localizedName
+                            let title = s == NSScreen.main ? "\(name) (Main)" : name
+                            Text(title).tag("id:\(id)")
                         }
                     }
-                    Toggle("Show over full-screen apps", isOn: $model.overFullScreen)
-                    Toggle("Launch at login", isOn: $model.launchAtLogin)
-                }
+                }.labelsHidden().frame(width: 220)
+            }
+        }
+        row("Edge") {
+            Picker("", selection: $model.onLeftEdge) {
+                Text("Right").tag(false); Text("Left").tag(true)
+            }.labelsHidden().pickerStyle(.segmented).frame(width: 160)
+        }
+        row("Detection area") {
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("", selection: $model.edgeWidth) {
+                    ForEach(Settings.edgeWidths, id: \.width) { Text($0.name).tag($0.width) }
+                }.labelsHidden().pickerStyle(.segmented).frame(width: 300)
+                Text("How far from the edge the pointer wakes the deck — \(Int(model.edgeWidth)) pt.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        }
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle("Keep the deck open", isOn: $model.alwaysShown)
+            Text("Tabs stay on the edge with their labels showing, instead of folding back into the pill when the pointer leaves.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle("Open a note by hovering its tab", isOn: $model.openOnHover)
+            Text("Rest on a tab and it opens, no click needed. Off by default.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        Toggle("Show over full-screen apps", isOn: $model.overFullScreen)
+        Toggle("Launch at login", isOn: $model.launchAtLogin)
+        Text("Hold ⌥ Option and drag the pill to move it to any screen, edge, or height.")
+            .font(.system(size: 11)).foregroundStyle(.secondary)
+            .padding(.top, 2)
+    }
 
-                group("Notes", "Type and formatting inside a note.") {
-                    row("Font") {
-                        Picker("", selection: $model.fontName) {
-                            ForEach(Ink.faces, id: \.body) { Text($0.name).tag($0.body) }
-                        }.labelsHidden().frame(width: 200)
-                    }
-                    row("Size") {
-                        HStack(spacing: 10) {
-                            Slider(value: $model.fontSize,
-                                   in: Settings.fontRange.lowerBound...Settings.fontRange.upperBound,
-                                   step: 0.5).frame(width: 210)
-                            Text("\(model.fontSize, specifier: "%.1f") pt")
-                                .font(.system(size: 11).monospacedDigit())
-                                .foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Toggle("Style Markdown as you type", isOn: $model.markdown)
-                        Text("**bold**, *italic*, `code`, ~~struck~~, # headings, > quotes. The text stays plain — only its appearance changes.")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+    @ViewBuilder
+    private var notesTab: some View {
+        row("Font") {
+            Picker("", selection: $model.fontName) {
+                ForEach(Ink.faces, id: \.body) { Text($0.name).tag($0.body) }
+            }.labelsHidden().frame(width: 200)
+        }
+        row("Note size") {
+            Picker("", selection: $model.noteSizeIndex) {
+                ForEach(Array(Settings.noteSizes.enumerated()), id: \.offset) { i, s in
+                    Text(s.name).tag(i)
                 }
             }
-            .padding(.horizontal, 30)
-            .padding(.top, 42)
-            .padding(.bottom, 30)
+            .labelsHidden().pickerStyle(.segmented).frame(width: 300)
         }
-        .frame(width: 520, height: 620)
+        row("Text size") {
+            HStack(spacing: 10) {
+                Slider(value: $model.fontSize,
+                       in: Settings.fontRange.lowerBound...Settings.fontRange.upperBound,
+                       step: 0.5).frame(width: 210)
+                Text("\(model.fontSize, specifier: "%.1f") pt")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
+            }
+        }
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle("Style Markdown as you type", isOn: $model.markdown)
+            Text("**bold**, *italic*, `code`, ~~struck~~, # headings, > quotes and [links](url), which ⌘-click opens. The text stays plain — only its appearance changes.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 0)
+    }
+
+    @ViewBuilder
+    private var updatesTab: some View {
+        row("This copy") {
+            Text(Self.versionString)
+                .font(.system(size: 12.5).monospacedDigit())
+        }
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle("Check for updates automatically", isOn: $model.autoUpdate)
+                .disabled(!Updater.available)
+            Text(model.updateStatus)
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        HStack(spacing: 10) {
+            Button("Check Now") { model.checkForUpdatesNow() }
+                .disabled(!Updater.available)
+            if !Updater.available {
+                Text("Run ./scripts/fetch-sparkle.sh and rebuild to add the updater.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        }
+        Divider().padding(.vertical, 4)
+        Text("Fetching appcast.xml is the only network request Noty ever makes — "
+             + "no accounts, no analytics, and nothing about a note leaves the Mac. "
+             + "Every update is checked against the EdDSA public key in the app; one "
+             + "signed by any other key is refused.")
+            .font(.system(size: 11)).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        Spacer(minLength: 0)
+    }
+
+    private static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Noty \(short)  (build \(build))"
     }
 
     // MARK: pieces
 
-    @ViewBuilder
-    private func group(_ title: String, _ caption: String,
-                       @ViewBuilder _ content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 15, weight: .semibold))
+    /// One tab. The heading is gone — the tab itself is the heading now — but the
+    /// caption earns its line, so it stays.
+    private func pane(_ caption: String,
+                      @ViewBuilder _ content: () -> some View) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 13) {
                 Text(caption).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 11) { content() }
             }
-            VStack(alignment: .leading, spacing: 11) { content() }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 18)
         }
+        .onAppear { model.refreshUpdateStatus() }
     }
 
     private func subhead(_ text: String) -> some View {
@@ -315,13 +479,14 @@ struct SettingsView: View {
     private func shortcutRow(_ label: String, _ value: Shortcut, _ key: String,
                              bare: Bool = false,
                              _ set: @escaping (Shortcut) -> Void) -> some View {
-        HStack(spacing: 14) {
-            Text(label).font(.system(size: 12.5)).frame(width: 130, alignment: .leading)
+        HStack(spacing: 10) {
+            Text(label).font(.system(size: 12)).frame(width: 96, alignment: .leading)
             ShortcutField(shortcut: value, allowsBareKeys: bare, onChange: set)
-                .frame(width: 128, height: 26)
+                .frame(width: 96, height: 24)
             if model.duplicate(of: value, ignoring: key) {
-                Label("Already used", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10)).foregroundStyle(.orange)
+                    .help("Already used by another shortcut")
             }
             Spacer(minLength: 0)
         }

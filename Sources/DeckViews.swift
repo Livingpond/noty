@@ -39,7 +39,7 @@ struct DeckRootView: View {
                     FanColumn(deck: deck, controller: controller,
                               notes: visible, hiddenCount: showsMoreTab ? hiddenCount : 0,
                               layout: lay, onRight: onRight)
-                        .padding(.top, lay.top)
+                        .padding(.top, fanTop(lay, panelHeight: h))
                 } else {
                     PillView(notes: store.active)
                         .padding(.top, max(0, (h - DeckGeom.pillHeight(noteCount: max(1, store.active.count))) / 2))
@@ -50,7 +50,6 @@ struct DeckRootView: View {
                 // Declared last so it covers the deck, flush to the screen edge.
                 if let id = deck.state.expandedID, let note = store.note(id: id) {
                     NoteEditorView(note: note, deck: deck, controller: controller, onRight: onRight)
-                        .frame(width: DeckGeom.editorWidth, height: DeckGeom.editorHeight)
                         .padding(.top, editorTop(lay, id: id))
                         .transition(.modifier(
                             active: NotePull(hidden: true, onRight: onRight),
@@ -68,11 +67,23 @@ struct DeckRootView: View {
         .animation(.easeInOut(duration: 0.22), value: deck.style)
     }
 
+    private func fanTop(_ lay: DeckLayout, panelHeight h: CGFloat) -> CGFloat {
+        let pillH = DeckGeom.pillHeight(noteCount: max(1, store.active.count))
+        let availableH = max(1, h - pillH)
+        let pillCenter = (1.0 - Settings.deckYRatio) * availableH + pillH / 2
+        let ideal = pillCenter - lay.stackHeight / 2
+        return min(max(12, ideal), max(12, h - lay.stackHeight - 12))
+    }
+
     /// Keep the open note level with its own tab, without letting it run off-screen.
     private func editorTop(_ lay: DeckLayout, id: String) -> CGFloat {
         let idx = visible.firstIndex { $0.id == id } ?? 0
-        let ideal = lay.center(idx) - DeckGeom.editorHeight / 2
-        let lowest = max(10, lay.panelHeight - DeckGeom.editorHeight - 10)
+        let h = deck.openedHeight
+        let fTop = fanTop(lay, panelHeight: lay.panelHeight)
+        let strip = idx == lay.count - 1 ? lay.itemHeight : lay.pitch
+        let stripCenter = fTop + CGFloat(idx) * lay.pitch + strip / 2
+        let ideal = stripCenter - h / 2
+        let lowest = max(10, lay.panelHeight - h - 10)
         return min(max(10, ideal), lowest)
     }
 }
@@ -122,8 +133,9 @@ struct FanColumn: View {
     let onRight: Bool
 
     @State private var revealed = false
+    @State private var hoverWork: DispatchWorkItem?
     @State private var dragID: String?
-    @State private var dragDY: CGFloat = 0
+    @State private var dragTarget: Int = 0
 
     var body: some View {
         ZStack(alignment: onRight ? .trailing : .leading) {
@@ -174,15 +186,41 @@ struct FanColumn: View {
                                     strip: layout.pitch,
                                     onRight: onRight,
                                     lifted: dragID == note.id,
-                                    action: { open(note) })
+                                    action: { open(note) },
+                                    onDragChanged: { dy in
+                                        if dragID != note.id {
+                                            dragID = note.id
+                                            dragTarget = idx
+                                            deck.isDragging = true
+                                        }
+                                        // Assign only on a real slot change, so the
+                                        // column redraws a handful of times per drag
+                                        // rather than on every pointer move.
+                                        let next = target(from: idx, dy: dy)
+                                        if next != dragTarget { dragTarget = next }
+                                    },
+                                    onHoverChanged: { inside in
+                                        guard dragID == nil, deck.openOnHover else { return }
+                                        if inside { scheduleHoverOpen(note.id) }
+                                        else { cancelHoverOpen() }
+                                    },
+                                    onDragEnded: { dy in
+                                        let to = target(from: idx, dy: dy)
+                                        dragID = nil
+                                        deck.isDragging = false
+                                        if to != idx { NoteStore.shared.reorder(id: note.id, by: to - idx) }
+                                    })
                     }
                 }
-                .offset(y: dragID == note.id ? dragDY : 0)
+                // Only the tabs stepping aside animate; the dragged one carries its
+                // own un-animated offset.
+                .offset(y: shift(idx))
+                .animation(dragID == note.id ? nil
+                           : .spring(response: 0.26, dampingFraction: 0.86), value: dragTarget)
                 // Only the tab being dragged is raised. Giving *every* tab a
                 // zIndex reorders neighbours and breaks the shingle; leaving the
                 // rest at the default keeps their declaration order intact.
                 .zIndex(dragID == note.id ? 900 : 0)
-                .simultaneousGesture(reorderGesture(note))
                 .staged(index: idx, revealed: revealed, onRight: onRight)
             }
             if hiddenCount > 0 {
@@ -195,30 +233,48 @@ struct FanColumn: View {
             PlusButton { (NSApp.delegate as? AppDelegate)?.newNote() }
                 .padding(.top, DeckGeom.plusGap - layout.spacing)
                 .staged(index: notes.count + 1, revealed: revealed, onRight: onRight)
+            CogButton { (NSApp.delegate as? AppDelegate)?.openSettings() }
+                .padding(.top, DeckGeom.cogGap - layout.spacing)
+                .staged(index: notes.count + 2, revealed: revealed, onRight: onRight)
         }
         .frame(width: DeckGeom.tabWidth)
     }
 
-    /// Press and hold a tab, then drag it up or down to reshuffle the deck.
-    private func reorderGesture(_ note: Note) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.28)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { value in
-                guard case .second(true, let drag) = value else { return }
-                if dragID != note.id { dragID = note.id }
-                dragDY = drag?.translation.height ?? 0
-            }
-            .onEnded { value in
-                if case .second(true, let drag) = value {
-                    let dy = drag?.translation.height ?? 0
-                    let slots = Int((dy / max(1, layout.pitch)).rounded())
-                    NoteStore.shared.reorder(id: note.id, by: slots)
-                }
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                    dragID = nil
-                    dragDY = 0
-                }
-            }
+    /// The pointer has to rest on a tab before it opens, or sweeping across the
+    /// deck opens every note on the way past.
+    private func scheduleHoverOpen(_ id: String) {
+        hoverWork?.cancel()
+        let work = DispatchWorkItem {
+            guard deck.openOnHover, dragID == nil, deck.state.expandedID != id else { return }
+            controller.expand(id)
+        }
+        hoverWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Settings.openOnHoverDelay, execute: work)
+    }
+
+    private func cancelHoverOpen() { hoverWork?.cancel(); hoverWork = nil }
+
+    private var dragFrom: Int? { notes.firstIndex { $0.id == dragID } }
+
+    /// Which slot the tab would drop into. A tab has to travel 60% of a slot
+    /// before the target moves, not 50% — at the halfway mark the smallest
+    /// pointer jitter flips the answer back and forth every frame, and each flip
+    /// animates a whole row of tabs. That oscillation is the flashing.
+    private func target(from: Int, dy: CGFloat) -> Int {
+        let pitch = max(1, layout.pitch)
+        let raw = dy / pitch
+        let slots = raw > 0 ? Int(floor(raw + 0.4)) : Int(ceil(raw - 0.4))
+        return min(max(0, from + slots), notes.count - 1)
+    }
+
+    /// The other tabs step aside as the dragged one passes, so the gap you are
+    /// dropping into is always visible.
+    private func shift(_ index: Int) -> CGFloat {
+        guard let from = dragFrom, index != from else { return 0 }
+        let to = dragTarget
+        if from < to, index > from, index <= to { return -layout.pitch }
+        if from > to, index < from, index >= to { return layout.pitch }
+        return 0
     }
 
     private func open(_ note: Note) {
@@ -284,36 +340,70 @@ struct VerticalTab: View {
     let onRight: Bool
     var lifted: Bool = false
     let action: () -> Void
+    var onDragChanged: (CGFloat) -> Void = { _ in }
+    var onHoverChanged: (Bool) -> Void = { _ in }
+    var onDragEnded: (CGFloat) -> Void = { _ in }
 
     @State private var hovering = false
+    @State private var dragging = false
+    /// Held here rather than on the column: the dragged tab has to follow the
+    /// pointer every frame, and keeping that state local means one small view
+    /// redraws instead of every tab, its shadow and its material.
+    @State private var dy: CGFloat = 0
+
+    /// Past this much vertical travel it is a reorder, not a tap.
+    private static let slop: CGFloat = 5
+
+    /// One gesture, not a tap competing with a long-press. A press that never
+    /// travels is a tap; anything that travels is a drag — and once it is a drag
+    /// the tap can no longer fire, so dragging a tab cannot also open its note.
+    private var press: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                if !dragging, abs(v.translation.height) > Self.slop { dragging = true }
+                guard dragging else { return }
+                dy = v.translation.height
+                onDragChanged(dy)          // the column only reacts if the slot changed
+            }
+            .onEnded { v in
+                if dragging {
+                    onDragEnded(v.translation.height)
+                } else if abs(v.translation.height) <= Self.slop {
+                    action()
+                }
+                dragging = false
+                dy = 0
+            }
+    }
 
     var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .top) {
-                edgeTabShape(onRight: onRight)
-                    .fill(note.palette.paper)
-                    .shadow(color: .black.opacity(lifted ? 0.42 : (isOpen || hovering ? 0.32 : 0.22)),
-                            radius: lifted ? 16 : (isOpen || hovering ? 9 : 6),
-                            x: onRight ? -3 : 3, y: lifted ? 6 : 2)
-                Text(note.displayTitle.uppercased())
-                    .font(Ink.tabFont)
-                    .tracking(Ink.tabTracking)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(note.palette.ink.opacity(0.85))
-                    .frame(width: max(20, strip - DeckGeom.labelInset),
-                           height: DeckGeom.tabWidth)
-                    .rotationEffect(.degrees(onRight ? 90 : -90))
-                    .frame(width: DeckGeom.tabWidth, height: strip)
-                    .offset(x: onRight ? -DeckGeom.bleed / 2 : DeckGeom.bleed / 2)
-            }
-            .frame(width: DeckGeom.tabWidth + DeckGeom.bleed, height: height, alignment: .top)
-            .scaleEffect(lifted ? 1.04 : 1, anchor: onRight ? .trailing : .leading)
-            .rotationEffect(.degrees(DeckGeom.lean(onRight: onRight)), anchor: onRight ? .trailing : .leading)
-            .offset(x: onRight ? DeckGeom.bleed : -DeckGeom.bleed)
-            .frame(width: DeckGeom.tabWidth)
-            .contentShape(Rectangle())
+        ZStack(alignment: .top) {
+            edgeTabShape(onRight: onRight)
+                .fill(note.palette.paper)
+                .shadow(color: .black.opacity(lifted ? 0.42 : (isOpen || hovering ? 0.32 : 0.22)),
+                        radius: lifted ? 16 : (isOpen || hovering ? 9 : 6),
+                        x: onRight ? -3 : 3, y: lifted ? 6 : 2)
+            Text(note.displayTitle.uppercased())
+                .font(Ink.tabFont)
+                .tracking(Ink.tabTracking)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(note.palette.ink.opacity(0.85))
+                .frame(width: max(20, strip - DeckGeom.labelInset),
+                       height: DeckGeom.tabWidth)
+                .rotationEffect(.degrees(onRight ? 90 : -90))
+                .frame(width: DeckGeom.tabWidth, height: strip)
+                .offset(x: onRight ? -DeckGeom.bleed / 2 : DeckGeom.bleed / 2)
         }
+        .frame(width: DeckGeom.tabWidth + DeckGeom.bleed, height: height, alignment: .top)
+        .scaleEffect(lifted ? 1.04 : 1, anchor: onRight ? .trailing : .leading)
+        .rotationEffect(.degrees(DeckGeom.lean(onRight: onRight)), anchor: onRight ? .trailing : .leading)
+        .offset(x: onRight ? DeckGeom.bleed : -DeckGeom.bleed)
+        .frame(width: DeckGeom.tabWidth)
+        // Deliberately not animated: the dragged tab must track the pointer
+        // exactly. A spring here reads as lag.
+        .offset(y: dy)
+        .contentShape(Rectangle())
         .overlay(alignment: onRight ? .topTrailing : .topLeading) {
             if note.pinned {
                 Circle()
@@ -323,8 +413,8 @@ struct VerticalTab: View {
                     .padding(onRight ? .trailing : .leading, 9)
             }
         }
-        .buttonStyle(TabPressStyle())
-        .onHover { hovering = $0 }
+        .gesture(press)
+        .onHover { hovering = $0; onHoverChanged($0) }
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: isOpen)
         .animation(.easeOut(duration: 0.14), value: hovering)
         .animation(.spring(response: 0.26, dampingFraction: 0.75), value: lifted)
@@ -427,6 +517,30 @@ struct PlusButton: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
         .help("New Note  ⌥⌘N")
+    }
+}
+
+/// Settings, one step below the new-note button. The pill's context menu still
+/// has everything; this is just the door people can find.
+struct CogButton: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "gearshape")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.primary.opacity(hovering ? 0.8 : 0.5))
+                .frame(width: DeckGeom.cogSize, height: DeckGeom.cogSize)
+                .background(Circle().fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.18), radius: 4, y: 1))
+                .scaleEffect(hovering ? 1.08 : 1)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+        .help("Settings  ⌘,")
     }
 }
 

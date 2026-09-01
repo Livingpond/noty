@@ -66,9 +66,6 @@ struct NoteColor {
         NoteColor(name: "Slate",  paper: hex(0xCBD6E2), dash: hex(0x4E6579), ink: hex(0x1A242E)),
     ]
 
-    /// A touch darker at the foot of the sheet, the way paper catches light.
-    var paperShade: Color { paper.opacity(1) }
-
     static func at(_ i: Int) -> NoteColor { all[((i % all.count) + all.count) % all.count] }
 
     private static func hex(_ v: UInt32) -> Color {
@@ -121,13 +118,19 @@ enum Ink {
         NoteFace(name: "得意黑",        body: "SmileySans-Oblique",   tab: "SmileySans-Oblique",   bump: 0),
     ]
 
-    static var faces: [NoteFace] {
+    /// Installed faces do not change while the app runs, and this is asked for on
+    /// every text render — resolving it each time cost nine font lookups a call.
+    static let faces: [NoteFace] =
         allFaces.filter { $0.body.isEmpty || NSFont(name: $0.body, size: 12) != nil }
-    }
+
+    private static var faceCache: (name: String, face: NoteFace)?
 
     static var face: NoteFace {
         let want = Settings.noteFontName
-        return faces.first { $0.body == want } ?? faces[0]
+        if let cached = faceCache, cached.name == want { return cached.face }
+        let resolved = faces.first { $0.body == want } ?? faces[0]
+        faceCache = (want, resolved)
+        return resolved
     }
 
     /// The hand (or face) note bodies are set in.
@@ -141,22 +144,35 @@ enum Ink {
 
     // Tab labels use the same face a shade bolder, so they hold up turned on
     // their side at this size.
-    static let tabSize: CGFloat = 9.5
-    static let tabTracking: CGFloat = 0.1
+    /// Labels scale with the deck, so a bigger tab carries a bigger title rather
+    /// than more empty paper. Layout measures the strip with this very font, so
+    /// the two cannot drift apart.
+    static var tabSize: CGFloat { 9.5 * DeckGeom.scale }
+    static var tabTracking: CGFloat { 0.1 * DeckGeom.scale }
 
     /// For measuring — layout sizes each tab's strip to the longest label.
     static var tabNSFont: NSFont {
         let f = face
         guard !f.tab.isEmpty, let font = NSFont(name: f.tab, size: tabSize + f.bump) else {
-            return .systemFont(ofSize: 9, weight: .semibold)
+            return .systemFont(ofSize: tabSize - 0.5, weight: .semibold)
         }
         return font
+    }
+
+    /// The body face as a SwiftUI font. Falls back to the system font by name,
+    /// which `Font.custom` cannot express for the system face.
+    static func bodyFont(_ size: CGFloat) -> Font {
+        let f = face
+        guard !f.body.isEmpty, NSFont(name: f.body, size: size) != nil else {
+            return .system(size: size)
+        }
+        return .custom(f.body, size: size + f.bump)
     }
 
     static var tabFont: Font {
         let f = face
         guard !f.tab.isEmpty, NSFont(name: f.tab, size: tabSize) != nil else {
-            return .system(size: 9, weight: .semibold)
+            return .system(size: tabSize - 0.5, weight: .semibold)
         }
         return .custom(f.tab, size: tabSize + f.bump)
     }

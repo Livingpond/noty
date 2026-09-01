@@ -6,13 +6,13 @@
     <description>Sticky notes that live at the edge of your screen.</description>
     <language>en</language>
     <item>
-      <title>1.0.8</title>
-      <pubDate>Sun, 30 Aug 2026 17:59:17 +0000</pubDate>
-      <sparkle:version>29</sparkle:version>
-      <sparkle:shortVersionString>1.0.8</sparkle:shortVersionString>
+      <title>1.2.0</title>
+      <pubDate>Mon, 31 Aug 2026 23:02:30 +0000</pubDate>
+      <sparkle:version>57</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>Settings window: rebindable shortcuts, Markdown styling, deck controls<br><br>Adds a Settings window (⌘, or the pill&#x27;s menu) where everything applies live.<br><br>Shortcuts — all twelve are now rebindable, not just the three global ones. The<br>recorder has to intercept performKeyEquivalent as well as keyDown, or a<br>combination matching a menu item is swallowed by the menu before the field sees<br>it. In-note shortcuts accept a bare key (Close defaults to plain esc) because<br>they are matched by the open note itself; the global ones still refuse a<br>modifier-less combination, which would swallow that key system-wide. Key names<br>come from the live keyboard layout via UCKeyTranslate.<br><br>Markdown — headings, emphasis, code, strikethrough, quotes and bullets style<br>themselves as you type, and the syntax is hidden rather than dimmed. Hiding<br>characters without deleting them means marking their glyphs .null in a<br>NSLayoutManager subclass; colouring them clear leaves their width behind and the<br>caret still walks through them. That in turn means building an explicit TextKit<br>1 stack, since a plain NSTextView gets TextKit 2 where NSLayoutManager is never<br>consulted. Markers reappear on the caret&#x27;s line so they stay editable, and the<br>stored text is untouched either way.<br><br>Also: ⇧⌘A archives the note in front of you — ⌥⌘L only ever opened the archive<br>window. Detection area is configurable, and a tab can be press-held and dragged<br>to reorder the deck.<br><br>Co-Authored-By: Claude Opus 5 (1M context) &lt;noreply@anthropic.com&gt;<br>Claude-Session: https://claude.ai/code/session_0121rEjp7UYPBnRHZ9N1dSUp</p>]]></description>
-      <enclosure url="https://github.com/aimen08/noty/releases/download/v1.0.8/Noty-1.0.8.dmg" type="application/octet-stream" sparkle:edSignature="3kNJSDSB78nE6Bas/+w8JPQBhVvSGZwFkmZimY65zlrQBR9H+0go5rnOqzKe0g8tF6NubHLpksCOeYSuxwDCAQ==" length="1759598" />
+      <description><![CDATA[<p>Noty 1.2.0</p><ul><li><a href="https://github.com/aimen08/noty/pull/2">#2</a> 修复中文输入法输入内容丢失 &mdash; @a835100635</li><li><a href="https://github.com/aimen08/noty/pull/6">#6</a> Let the deck stay fanned out instead of folding back to the pill &mdash; @hdob-macko</li><li><a href="https://github.com/aimen08/noty/pull/7">#7</a> Add a deck size preference so the tabs can be scaled &mdash; @hdob-macko</li><li><a href="https://github.com/aimen08/noty/pull/8">#8</a> Improve editor input performance with incremental styling &mdash; @Bazingabc</li><li><a href="https://github.com/aimen08/noty/pull/10">#10</a> Allow relocating the deck across displays and edges with Option-drag (fixes #4) &mdash; @Pioneer113</li></ul><p>Thanks to @speech115.</p>]]></description>
+      <enclosure url="https://github.com/aimen08/noty/releases/download/v1.2.0/Noty-1.2.0.dmg" type="application/octet-stream" sparkle:edSignature="zhRdRm3pBvWhgG3xFCy7ged8GGPXykRUs00mhIkDg6dXj8d8QJxMg+uDbp2LaiECLOWTFDh2+nHItVZZYv5QCQ==" length="1830709" />
     </item>
   </channel>
 </rss>

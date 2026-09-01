@@ -15,6 +15,28 @@ enum Settings {
         set { d.set(newValue, forKey: "deckOnLeftEdge") }
     }
 
+    /// Vertical position of the pill along the screen edge (0.0 = bottom, 1.0 = top).
+    static var deckYRatio: CGFloat {
+        get {
+            if let hit = cachedYRatio { return hit }
+            let v = (d.object(forKey: "deckYRatio") as? CGFloat).map { min(max($0, 0.0), 1.0) } ?? 0.5
+            cachedYRatio = v
+            return v
+        }
+        set {
+            let v = min(max(newValue, 0.0), 1.0)
+            cachedYRatio = v
+            d.set(v, forKey: "deckYRatio")
+        }
+    }
+    private static var cachedYRatio: CGFloat?
+
+    /// Target display: "all" for all screens, "main" for primary, or "id:<displayID>".
+    static var displayTarget: String {
+        get { d.string(forKey: "displayTarget") ?? "all" }
+        set { d.set(newValue, forKey: "displayTarget") }
+    }
+
     /// Max tabs the fan shows before collapsing the remainder into "+N".
     /// Five keeps every tab at full size instead of squeezing the deck.
     static let fanLimit = 5
@@ -130,6 +152,54 @@ enum Settings {
         set { d.set(newValue, forKey: "edgeWidth") }
     }
 
+    // A short list of note sizes. Dragging a corner meant re-laying out a window
+    // and a text view on every pointer move; picking from four does it once.
+    static let noteSizes: [(name: String, size: CGSize)] = [
+        ("Small",  CGSize(width: 400, height: 320)),
+        ("Medium", CGSize(width: 460, height: 380)),
+        ("Large",  CGSize(width: 560, height: 470)),
+        ("Huge",   CGSize(width: 680, height: 560)),
+    ]
+
+    static var noteSizeIndex: Int {
+        get {
+            if let hit = cachedNoteSizeIndex { return hit }
+            let v: Int
+            if let stored = d.object(forKey: "noteSizeIndex") as? Int,
+               noteSizes.indices.contains(stored) {
+                v = stored
+            } else if case let w = d.double(forKey: "noteWidth"), w > 0 {
+                // Carry over a size that was previously dragged: pick the nearest.
+                v = noteSizes.enumerated()
+                    .min { abs($0.element.size.width - w) < abs($1.element.size.width - w) }?
+                    .offset ?? 1
+            } else {
+                v = 1
+            }
+            cachedNoteSizeIndex = v
+            return v
+        }
+        set {
+            let v = min(max(newValue, 0), noteSizes.count - 1)
+            cachedNoteSizeIndex = v
+            d.set(v, forKey: "noteSizeIndex")
+        }
+    }
+    private static var cachedNoteSizeIndex: Int?
+
+    static var noteSize: CGSize { noteSizes[noteSizeIndex].size }
+
+    /// Open a note by hovering its tab instead of clicking it. Off by default:
+    /// the deck is meant to stay quiet until you ask it for something.
+    static var openOnHover: Bool {
+        get { d.object(forKey: "openOnHover") as? Bool ?? false }
+        set { d.set(newValue, forKey: "openOnHover") }
+    }
+
+    /// How long the pointer must rest on a tab before it opens, so sweeping past
+    /// the deck does not open every note in turn.
+    static let openOnHoverDelay: TimeInterval = 0.4
+
     /// Style Markdown inline — headings, emphasis, code, quotes.
     static var markdownStyling: Bool {
         get { d.object(forKey: "markdownStyling") as? Bool ?? true }
@@ -139,6 +209,43 @@ enum Settings {
     /// How long the deck may sit untouched before it tidies itself away.
     static let fanIdleTimeout: TimeInterval = 4
     static let noteIdleTimeout: TimeInterval = 60
+
+    /// Keep the deck fanned out instead of letting it fall back to the pill.
+    /// Only the *resting* state changes — notes still open and tidy away as usual.
+    static var deckAlwaysShown: Bool {
+        get { d.bool(forKey: "deckAlwaysShown") }
+        set { d.set(newValue, forKey: "deckAlwaysShown") }
+    }
+
+    /// Multiplier on every deck metric — tab width, label type, the lap between
+    /// tabs, the chips and the pill. One knob so the deck scales as a whole
+    /// instead of drifting out of proportion with itself.
+    static let deckScaleRange: ClosedRange<Double> = 0.7...1.8
+
+    static let deckSizes: [(name: String, scale: Double)] = [
+        ("Small", 0.85), ("Default", 1.0), ("Large", 1.25), ("Extra large", 1.5)
+    ]
+
+    /// Memoized: DeckGeom routes every metric through this, and SwiftUI reads
+    /// those metrics dozens of times per body evaluation during the fan and drag
+    /// animations. A UserDefaults read is a lock and a dictionary lookup (~320 ns
+    /// measured); a stored static is free. All writes come through this setter
+    /// and everything runs on the main thread, so the cache cannot go stale.
+    static var deckScale: Double {
+        get {
+            if let hit = cachedDeckScale { return hit }
+            let raw = d.double(forKey: "deckScale")
+            let v = deckScaleRange.contains(raw) ? raw : 1.0
+            cachedDeckScale = v
+            return v
+        }
+        set {
+            let v = min(max(newValue, deckScaleRange.lowerBound), deckScaleRange.upperBound)
+            cachedDeckScale = v
+            d.set(v, forKey: "deckScale")
+        }
+    }
+    private static var cachedDeckScale: Double?
 
     /// Labelled tabs, or bare colour chips that barely touch the screen.
     static var deckStyle: DeckStyle {

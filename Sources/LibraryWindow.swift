@@ -147,20 +147,41 @@ struct LibraryView: View {
             }
 
             Divider()
-            HStack {
+            HStack(spacing: 12) {
                 Button { NoteStore.shared.create() } label: {
-                    Label("New Note", systemImage: "plus")
-                        .font(.system(size: 11.5))
+                    Label("New Note", systemImage: "plus").font(.system(size: 11.5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+
+                Menu {
+                    Button("Markdown — one file per note…") {
+                        Transfer.export(.markdown, notes: NoteStore.shared.notes)
+                    }
+                    Button("Plain text — one file per note…") {
+                        Transfer.export(.plainText, notes: NoteStore.shared.notes)
+                    }
+                    Button("Single document…") {
+                        Transfer.export(.singleFile, notes: NoteStore.shared.notes)
+                    }
+                    Button("Sticky archive (.stickies)…") {
+                        Transfer.export(.stickies, notes: NoteStore.shared.notes)
+                    }
+                    Divider()
+                    Button("Import…") { Transfer.importFiles() }
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up").font(.system(size: 11.5))
+                }
+                .menuStyle(.borderlessButton)
                 .foregroundStyle(.secondary)
+                .fixedSize()
+
                 Spacer()
                 Text("\(filtered.count)")
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14)
-            .frame(height: 30)
+            .frame(height: 32)
         }
     }
 
@@ -276,7 +297,9 @@ struct LibraryDetail: View {
             .background(pal.dash.opacity(0.12))
 
             NoteTextView(text: $text, ink: NSColor(pal.ink), bridge: bridge,
-                         autofocus: false, fontSize: Settings.noteFontSize)
+                         autofocus: false, fontSize: Settings.noteFontSize,
+                         markdownEnabled: Settings.markdownStyling,
+                         styleToken: "\(note.color)|\(Settings.noteFontSize)|\(Settings.noteFontName)|\(Settings.markdownStyling)")
                 .background(pal.paper)
         }
         .onAppear { text = note.body }

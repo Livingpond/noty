@@ -16,6 +16,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             allNotes: { [weak self] in self?.openAllNotes() },
             archive:  { [weak self] in self?.openArchive() }
         )
+
+        // Sparkle only schedules its background checks once the controller
+        // exists. Until now nothing touched it before the pill's context menu
+        // was opened, so a user who never right-clicked was never offered an
+        // update however long the app ran.
+        _ = Updater.shared
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -71,9 +77,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         deckManager.refreshAll()
     }
 
+    @objc func toggleDeckAlwaysShown() {
+        Settings.deckAlwaysShown.toggle()
+        deckManager.refreshAll()
+    }
+
+    @objc func setDeckScale(_ sender: NSMenuItem) {
+        guard let scale = sender.representedObject as? Double else { return }
+        Settings.deckScale = scale
+        deckManager.refreshAll()
+    }
+
     @objc func toggleDeckEdge() {
         Settings.deckOnLeftEdge.toggle()
         deckManager.refreshAll()
+    }
+
+    @objc func setDisplayTarget(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? String else { return }
+        Settings.displayTarget = target
+        SettingsWindow.shared.syncPreferences()
     }
 
     @objc func toggleLaunchAtLogin() {
