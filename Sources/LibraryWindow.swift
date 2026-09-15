@@ -6,6 +6,13 @@ enum LibraryMode: String, CaseIterable, Identifiable {
     case all = "All Notes"
     case archive = "Archive"
     var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: L10n.text("library.all_notes")
+        case .archive: L10n.text("library.archive")
+        }
+    }
 }
 
 final class LibraryModel: ObservableObject {
@@ -68,7 +75,7 @@ struct LibraryView: View {
         let q = model.query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return source }
         return source.filter {
-            $0.title.lowercased().contains(q) || $0.body.lowercased().contains(q)
+            $0.displayTitle.lowercased().contains(q) || $0.body.lowercased().contains(q)
         }
     }
 
@@ -102,7 +109,7 @@ struct LibraryView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             Picker("", selection: $model.mode) {
-                ForEach(LibraryMode.allCases) { Text($0.rawValue).tag($0) }
+                ForEach(LibraryMode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -113,7 +120,7 @@ struct LibraryView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
-                TextField("Search all notes", text: $model.query)
+                TextField(L10n.text("library.search_placeholder"), text: $model.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                 if !model.query.isEmpty {
@@ -133,8 +140,10 @@ struct LibraryView: View {
                     Image(systemName: model.mode == .all ? "note.text" : "archivebox")
                         .font(.system(size: 22)).foregroundStyle(.quaternary)
                     Text(model.query.isEmpty
-                         ? (model.mode == .all ? "No notes yet" : "Nothing archived")
-                         : "No matches")
+                         ? (model.mode == .all
+                            ? L10n.text("library.no_notes")
+                            : L10n.text("library.no_archive"))
+                         : L10n.text("library.no_matches"))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -149,27 +158,27 @@ struct LibraryView: View {
             Divider()
             HStack(spacing: 12) {
                 Button { NoteStore.shared.create() } label: {
-                    Label("New Note", systemImage: "plus").font(.system(size: 11.5))
+                    Label(L10n.text("menu.new_note"), systemImage: "plus").font(.system(size: 11.5))
                 }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
 
                 Menu {
-                    Button("Markdown — one file per note…") {
+                    Button(L10n.text("export.markdown_per_note")) {
                         Transfer.export(.markdown, notes: NoteStore.shared.notes)
                     }
-                    Button("Plain text — one file per note…") {
+                    Button(L10n.text("export.plain_per_note")) {
                         Transfer.export(.plainText, notes: NoteStore.shared.notes)
                     }
-                    Button("Single document…") {
+                    Button(L10n.text("export.single_document")) {
                         Transfer.export(.singleFile, notes: NoteStore.shared.notes)
                     }
-                    Button("Sticky archive (.stickies)…") {
+                    Button(L10n.text("export.sticky_archive")) {
                         Transfer.export(.stickies, notes: NoteStore.shared.notes)
                     }
                     Divider()
-                    Button("Import…") { Transfer.importFiles() }
+                    Button(L10n.text("menu.import")) { Transfer.importFiles() }
                 } label: {
-                    Label("Export", systemImage: "square.and.arrow.up").font(.system(size: 11.5))
+                    Label(L10n.text("menu.export"), systemImage: "square.and.arrow.up").font(.system(size: 11.5))
                 }
                 .menuStyle(.borderlessButton)
                 .foregroundStyle(.secondary)
@@ -216,12 +225,12 @@ struct LibraryView: View {
         .padding(.vertical, 3)
         .contextMenu {
             if note.archived {
-                Button("Restore") { NoteStore.shared.setArchived(id: note.id, false) }
+                Button(L10n.text("action.restore")) { NoteStore.shared.setArchived(id: note.id, false) }
             } else {
-                Button("Archive") { NoteStore.shared.setArchived(id: note.id, true) }
+                Button(L10n.text("action.archive")) { NoteStore.shared.setArchived(id: note.id, true) }
             }
             Divider()
-            Button("Delete") { NoteStore.shared.delete(id: note.id) }
+            Button(L10n.text("action.delete")) { NoteStore.shared.delete(id: note.id) }
         }
     }
 
@@ -235,7 +244,7 @@ struct LibraryView: View {
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "sidebar.right").font(.system(size: 26)).foregroundStyle(.quaternary)
-                Text("Select a note").font(.system(size: 13)).foregroundStyle(.secondary)
+                Text(L10n.text("library.select_note")).font(.system(size: 13)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .textBackgroundColor))
@@ -249,8 +258,15 @@ struct LibraryDetail: View {
     let note: Note
     let bridge: EditorBridge
 
-    @State private var text = ""
-    @State private var saveWork: DispatchWorkItem?
+    @ObservedObject private var store = NoteStore.shared
+    private var text: String { store.note(id: note.id)?.body ?? "" }
+    private var title: String { store.note(id: note.id)?.title ?? "" }
+    private var textBinding: Binding<String> {
+        Binding(get: { text }, set: { store.updateBody(id: note.id, body: $0) })
+    }
+    private var titleBinding: Binding<String> {
+        Binding(get: { title }, set: { store.updateTitle(id: note.id, title: $0) })
+    }
 
     private var pal: NoteColor { note.palette }
 
@@ -262,26 +278,50 @@ struct LibraryDetail: View {
                         .padding(3).contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .help("Cycle colour · right-click to pick")
+                .help(L10n.text("help.pick_colour"))
                 .contextMenu {
                     ForEach(Array(NoteColor.all.enumerated()), id: \.offset) { idx, c in
-                        Button(idx == note.color ? "✓ \(c.name)" : c.name) {
+                        Button(idx == note.color ? "✓ \(c.localizedName)" : c.localizedName) {
                             NoteStore.shared.setColor(id: note.id, color: idx)
                         }
                     }
                 }
 
-                Text(note.displayTitle)
-                    .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                ZStack(alignment: .leading) {
+                    if title.isEmpty {
+                        Text(note.hasCustomTitle ? L10n.text("note.title_prompt") : (Note.derivedTitle(from: text).isEmpty ? L10n.text("note.untitled") : Note.derivedTitle(from: text)))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .allowsHitTesting(false)
+                    }
+                    TextField("", text: titleBinding)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1)
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .contextMenu {
+                    if note.hasCustomTitle {
+                        Button(L10n.text("note.title_reset")) {
+                            NoteStore.shared.updateTitle(id: note.id, title: "")
+                        }
+                    }
+                }
+
                 Spacer()
-                Text("Edited \(Fmt.ago(note.modified))")
+                Text(store.unsavedIDs.contains(note.id) ? L10n.text("note.not_saved")
+                     : L10n.format("note.edited", Fmt.ago(note.modified)))
                     .font(.system(size: 10.5)).foregroundStyle(.secondary)
 
+                NoteTextDirectionMenu(direction: note.textDirection,
+                                      foreground: .secondary) {
+                    NoteStore.shared.setTextDirection(id: note.id, direction: $0)
+                }
+
                 if note.archived {
-                    Button("Restore") { NoteStore.shared.setArchived(id: note.id, false) }
+                    Button(L10n.text("action.restore")) { NoteStore.shared.setArchived(id: note.id, false) }
                         .controlSize(.small)
                 } else {
-                    Button("Archive") { NoteStore.shared.setArchived(id: note.id, true) }
+                    Button(L10n.text("action.archive")) { NoteStore.shared.setArchived(id: note.id, true) }
                         .controlSize(.small)
                 }
                 Button {
@@ -296,22 +336,13 @@ struct LibraryDetail: View {
             .padding(.bottom, 10)
             .background(pal.dash.opacity(0.12))
 
-            NoteTextView(text: $text, ink: NSColor(pal.ink), bridge: bridge,
+            NoteTextView(text: textBinding, ink: NSColor(pal.ink), bridge: bridge,
                          autofocus: false, fontSize: Settings.noteFontSize,
                          markdownEnabled: Settings.markdownStyling,
+                         textDirection: note.textDirection,
                          styleToken: "\(note.color)|\(Settings.noteFontSize)|\(Settings.noteFontName)|\(Settings.markdownStyling)")
                 .background(pal.paper)
         }
-        .onAppear { text = note.body }
-        .onChange(of: text) { _, v in
-            saveWork?.cancel()
-            let w = DispatchWorkItem { NoteStore.shared.updateBody(id: note.id, body: v) }
-            saveWork = w
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: w)
-        }
-        .onDisappear {
-            saveWork?.cancel()
-            NoteStore.shared.updateBody(id: note.id, body: text)
-        }
+        .onDisappear { store.flush(id: note.id) }
     }
 }

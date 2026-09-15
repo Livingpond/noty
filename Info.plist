@@ -4,6 +4,12 @@
 <dict>
 	<key>CFBundleName</key>            <string>Noty</string>
 	<key>CFBundleDisplayName</key>     <string>Noty</string>
+	<key>CFBundleDevelopmentRegion</key><string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleIdentifier</key>      <string>app.noty.Noty</string>
 	<key>CFBundleExecutable</key>      <string>Noty</string>
 	<key>CFBundleIconFile</key>        <string>AppIcon</string>
@@ -12,6 +18,13 @@
 	<key>CFBundleVersion</key>         <string>1</string>
 	<key>LSMinimumSystemVersion</key>  <string>15.0</string>
 	<key>LSUIElement</key>             <true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>    <string>app.noty.Noty</string>
+			<key>CFBundleURLSchemes</key> <array><string>noty</string></array>
+		</dict>
+	</array>
 	<key>NSHighResolutionCapable</key> <true/>
 	<key>NSHumanReadableCopyright</key><string>Local-only sticky notes.</string>
 

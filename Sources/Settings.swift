@@ -1,9 +1,64 @@
 import Foundation
 import ServiceManagement
 
+/// The language macOS should use for Noty. `system` means there is no
+/// application-specific override, so the normal language preference chain wins.
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case system
+    case english = "en"
+    case simplifiedChinese = "zh-Hans"
+
+    var id: String { rawValue }
+
+    var localizedName: String {
+        switch self {
+        case .system:            L10n.text("language.system")
+        case .english:           L10n.text("language.english")
+        case .simplifiedChinese: L10n.text("language.simplified_chinese")
+        }
+    }
+
+    var appleLanguageIdentifier: String? {
+        self == .system ? nil : rawValue
+    }
+
+    static func resolve(_ identifiers: [String]?) -> AppLanguage {
+        guard let identifier = identifiers?.first?.lowercased() else { return .system }
+        if identifier.hasPrefix("en") { return .english }
+        if identifier == "zh" || identifier.hasPrefix("zh-hans")
+            || identifier.hasPrefix("zh-cn") || identifier.hasPrefix("zh-sg") {
+            return .simplifiedChinese
+        }
+        return .system
+    }
+}
+
 /// Thin UserDefaults wrapper for the handful of togglable preferences.
 enum Settings {
     private static let d = UserDefaults.standard
+    private static let applicationDomain = Bundle.main.bundleIdentifier ?? "app.noty.Noty"
+
+    /// Uses the same application-domain preference as macOS System Settings,
+    /// rather than maintaining a second Noty-only language setting.
+    static var appLanguage: AppLanguage {
+        get { appLanguage(in: d, applicationDomain: applicationDomain) }
+        set { setAppLanguage(newValue, in: d) }
+    }
+
+    static func appLanguage(in defaults: UserDefaults,
+                            applicationDomain: String) -> AppLanguage {
+        let identifiers = defaults.persistentDomain(forName: applicationDomain)?["AppleLanguages"]
+            as? [String]
+        return AppLanguage.resolve(identifiers)
+    }
+
+    static func setAppLanguage(_ language: AppLanguage, in defaults: UserDefaults) {
+        if let identifier = language.appleLanguageIdentifier {
+            defaults.set([identifier], forKey: "AppleLanguages")
+        } else {
+            defaults.removeObject(forKey: "AppleLanguages")
+        }
+    }
 
     static var showOverFullScreen: Bool {
         get { d.object(forKey: "showOverFullScreen") as? Bool ?? false }
@@ -42,8 +97,8 @@ enum Settings {
     static let fanLimit = 5
 
     /// Body text size inside a note.
-    static let fontSizes: [(name: String, size: Double)] = [
-        ("Small", 12), ("Medium", 13.5), ("Large", 15.5), ("Extra Large", 18)
+    static let fontSizes: [(nameKey: String, size: Double)] = [
+        ("size.small", 12), ("size.medium", 13.5), ("size.large", 15.5), ("size.extra_large", 18)
     ]
 
     static let fontRange: ClosedRange<Double> = 10...30
@@ -88,6 +143,10 @@ enum Settings {
     static var scAllNotes: Shortcut {
         get { shortcut("scAllNotes", default: Shortcut(keyCode: 0, modifiers: 2048 | 256)) }
         set { setShortcut("scAllNotes", newValue) }
+    }
+    static var scCapture: Shortcut {
+        get { shortcut("scCapture", default: Shortcut(keyCode: 49, modifiers: 512 | 256)) }  // ⇧⌘Space
+        set { setShortcut("scCapture", newValue) }
     }
     static var scArchive: Shortcut {
         get { shortcut("scArchive", default: Shortcut(keyCode: 37, modifiers: 2048 | 256)) }
@@ -140,8 +199,8 @@ enum Settings {
 
     /// How far from the screen edge the deck notices the pointer. A wider strip
     /// is easier to hit; a narrower one stays further out of the way.
-    static let edgeWidths: [(name: String, width: Double)] = [
-        ("Narrow", 8), ("Standard", 14), ("Wide", 28), ("Very wide", 44)
+    static let edgeWidths: [(nameKey: String, width: Double)] = [
+        ("width.narrow", 8), ("width.standard", 14), ("width.wide", 28), ("width.very_wide", 44)
     ]
 
     static var edgeWidth: Double {
@@ -154,11 +213,11 @@ enum Settings {
 
     // A short list of note sizes. Dragging a corner meant re-laying out a window
     // and a text view on every pointer move; picking from four does it once.
-    static let noteSizes: [(name: String, size: CGSize)] = [
-        ("Small",  CGSize(width: 400, height: 320)),
-        ("Medium", CGSize(width: 460, height: 380)),
-        ("Large",  CGSize(width: 560, height: 470)),
-        ("Huge",   CGSize(width: 680, height: 560)),
+    static let noteSizes: [(nameKey: String, size: CGSize)] = [
+        ("size.small",  CGSize(width: 400, height: 320)),
+        ("size.medium", CGSize(width: 460, height: 380)),
+        ("size.large",  CGSize(width: 560, height: 470)),
+        ("size.huge",   CGSize(width: 680, height: 560)),
     ]
 
     static var noteSizeIndex: Int {
@@ -200,11 +259,32 @@ enum Settings {
     /// the deck does not open every note in turn.
     static let openOnHoverDelay: TimeInterval = 0.4
 
+    /// Show a lightweight peek / flyout preview card when hovering a tab.
+    static var tabPreview: Bool {
+        get { d.object(forKey: "tabPreview") as? Bool ?? true }
+        set { d.set(newValue, forKey: "tabPreview") }
+    }
+
+    /// How long the pointer must rest on a tab before its preview card appears.
+    static let tabPreviewDelay: TimeInterval = 0.18
+
     /// Style Markdown inline — headings, emphasis, code, quotes.
     static var markdownStyling: Bool {
         get { d.object(forKey: "markdownStyling") as? Bool ?? true }
         set { d.set(newValue, forKey: "markdownStyling") }
     }
+
+    /// Mirror notes into iCloud Drive. Off by default and deliberately so: a
+    /// synced note is written out as plain Markdown, which takes it out of the
+    /// AES-GCM database. Nobody gets that by accident.
+    static var cloudSyncEnabled: Bool {
+        get { d.bool(forKey: "cloudSyncEnabled") }
+        set { d.set(newValue, forKey: "cloudSyncEnabled") }
+    }
+
+    /// How often the sync folder is re-listed. A pass only reads files whose
+    /// modification date moved, so this is a directory listing, not a re-read.
+    static let cloudSyncInterval: TimeInterval = 5
 
     /// How long the deck may sit untouched before it tidies itself away.
     static let fanIdleTimeout: TimeInterval = 4
@@ -217,13 +297,43 @@ enum Settings {
         set { d.set(newValue, forKey: "deckAlwaysShown") }
     }
 
+    /// With the deck kept open its + and cog buttons sit on screen all day;
+    /// this trades them for a quieter edge (issue #36). The menu bar icon and
+    /// hotkeys still create notes and open Settings.
+    static var deckHideActions: Bool {
+        get { d.bool(forKey: "deckHideActions") }
+        set { d.set(newValue, forKey: "deckHideActions") }
+    }
+
+    /// The size the floating note was last resized to. It starts at the deck
+    /// note's size and keeps whatever you stretch it to — a freely placed note
+    /// that snapped back to a preset on every pull would feel broken.
+    static var floatingNoteSize: CGSize {
+        get {
+            let w = d.double(forKey: "floatingNoteW"), h = d.double(forKey: "floatingNoteH")
+            return w >= 280 && h >= 220 ? CGSize(width: w, height: h) : noteSize
+        }
+        set {
+            d.set(newValue.width, forKey: "floatingNoteW")
+            d.set(newValue.height, forKey: "floatingNoteH")
+        }
+    }
+
+    /// Show nothing at all at rest — no pill, no dashes. The invisible edge
+    /// strip still wakes the deck, so the notes are one hover away; they just
+    /// leave the screen entirely alone until asked for.
+    static var deckPillHidden: Bool {
+        get { d.bool(forKey: "deckPillHidden") }
+        set { d.set(newValue, forKey: "deckPillHidden") }
+    }
+
     /// Multiplier on every deck metric — tab width, label type, the lap between
     /// tabs, the chips and the pill. One knob so the deck scales as a whole
     /// instead of drifting out of proportion with itself.
     static let deckScaleRange: ClosedRange<Double> = 0.7...1.8
 
-    static let deckSizes: [(name: String, scale: Double)] = [
-        ("Small", 0.85), ("Default", 1.0), ("Large", 1.25), ("Extra large", 1.5)
+    static let deckSizes: [(nameKey: String, scale: Double)] = [
+        ("size.small", 0.85), ("size.default", 1.0), ("size.large", 1.25), ("size.extra_large", 1.5)
     ]
 
     /// Memoized: DeckGeom routes every metric through this, and SwiftUI reads

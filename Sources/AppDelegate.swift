@@ -9,12 +9,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildMainMenu()
 
         deckManager = DeckManager()
+        restoreAfterLanguageRelaunch()
         UndoToast.shared.start()
 
         HotKeys.shared.register(
             newNote: { [weak self] in self?.newNote() },
             allNotes: { [weak self] in self?.openAllNotes() },
-            archive:  { [weak self] in self?.openArchive() }
+            archive:  { [weak self] in self?.openArchive() },
+            capture:  { QuickCapture.shared.toggle() }
         )
 
         // Sparkle only schedules its background checks once the controller
@@ -22,10 +24,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // was opened, so a user who never right-clicked was never offered an
         // update however long the app ran.
         _ = Updater.shared
+
+        // Off unless the user asked for it; reload() is a no-op when it is off.
+        CloudSync.shared.reload()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        NoteStore.shared.flushAll() ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         HotKeys.shared.unregisterAll()
+    }
+
+    /// Coming back to the Mac is the likeliest moment for the phone's edits to
+    /// be waiting, and the poll may be up to its full interval away.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        CloudSync.shared.syncNow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -38,6 +53,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func openAllNotes() { LibraryWindow.shared.show(mode: .all) }
+    @objc func quickCapture() { QuickCapture.shared.toggle() }
+
+    /// noty:// — the whole automation surface. The text only ever becomes note
+    /// content, never anything executed, so there is nothing here to harden
+    /// beyond ignoring what we do not recognise.
+    ///   noty://new?text=…   create a note (no text → open quick capture)
+    ///   noty://capture      open the quick capture box
+    ///   noty://all          the All Notes window
+    ///   noty://settings     the Settings window
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme == "noty" {
+            let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "text" }?.value ?? ""
+            switch url.host {
+            case "new" where !text.isEmpty:
+                _ = NoteStore.shared.create(body: text)
+            case "new", "capture":
+                QuickCapture.shared.show()
+            case "all":      openAllNotes()
+            case "settings": openSettings()
+            default: break
+            }
+        }
+    }
     @objc func openSettings() { SettingsWindow.shared.show() }
 
     /// Re-read preferences into every deck. Settings calls this on each change.
@@ -117,20 +156,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func quit() { NSApp.terminate(nil) }
 
+    /// Bundle localization is fixed for the lifetime of a process. Launch the
+    /// replacement first, then terminate only after Launch Services confirms it.
+    /// On failure the preference is rolled back and the picker re-synced, so the
+    /// window does not sit there claiming a language the running UI never uses.
+    func relaunchForLanguageChange(previous: AppLanguage) {
+        guard !isRelaunching else { return }
+        guard NoteStore.shared.flushAll() else {
+            Settings.appLanguage = previous
+            SettingsWindow.shared.syncPreferences()
+            return
+        }
+        isRelaunching = true
+
+        // Hand the new instance everything worth putting back: the expanded
+        // note (one per screen is impossible, only one deck is ever expanded)
+        // and, most importantly, the settings window the user is standing in.
+        let expanded = deckManager.decks.values.first { $0.model.state.expandedID != nil }
+        let resume = ReloadResume(
+            noteID: expanded?.model.state.expandedID,
+            displayID: expanded?.displayID,
+            settingsOpen: SettingsWindow.shared.isOpen)
+        if resume.open { ReloadResume.save(resume) }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL,
+                                           configuration: configuration) { _, error in
+            DispatchQueue.main.async {
+                if let error {
+                    NSLog("Noty: language-change relaunch failed — \(error.localizedDescription)")
+                    ReloadResume.clear()
+                    Settings.appLanguage = previous
+                    SettingsWindow.shared.syncPreferences()
+                    self.isRelaunching = false
+                } else {
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+    }
+
+    /// A language-change relaunch through the state the old process handed
+    /// over: reopen the same note on the same display, and the settings window.
+    private func restoreAfterLanguageRelaunch() {
+        guard let resume = ReloadResume.loadAndClear(), resume.open else { return }
+        if let id = resume.noteID, NoteStore.shared.note(id: id) != nil {
+            // Let the freshly launched deck settle into its resting pose before
+            // the note animates in, so it does not fight the restore.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                let deck = self?.deckManager.decks[resume.displayID ?? 0] ?? self?.deckManager.focused
+                deck?.expand(id)
+            }
+        }
+        if resume.settingsOpen { openSettings() }
+    }
+
+    private var isRelaunching = false
+
     @objc func showAbout() {
         NSApp.activate()
         let a = NSAlert()
         a.messageText = "Noty"
-        a.informativeText = """
-        Sticky notes docked to the edge of your screen.
-
-        ⌥⌘N  new note      ⌥⌘A  all notes      ⌥⌘L  archive
-        In a note — Esc closes, ⌘F finds, ⌘. cycles colour, ⌘⌫ deletes.
-
-        Notes are stored locally in an SQLite database; bodies are encrypted \
-        with AES-GCM. Your notes never leave this Mac — the only network request \
-        the app makes is the update check, which you can switch off.
-        """
+        a.informativeText = L10n.text("about.body")
         a.runModal()
     }
 
@@ -145,28 +234,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About Noty", action: #selector(showAbout), keyEquivalent: "")
-        appMenu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        appMenu.addItem(withTitle: L10n.text("menu.about"), action: #selector(showAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: L10n.text("menu.check_for_updates"), action: #selector(checkForUpdates), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "New Note", action: #selector(newNote), keyEquivalent: "n")
-        appMenu.addItem(withTitle: "All Notes", action: #selector(openAllNotes), keyEquivalent: "a")
-        appMenu.addItem(withTitle: "Archive", action: #selector(openArchive), keyEquivalent: "l")
+        let newNoteItem = appMenu.addItem(withTitle: L10n.text("menu.new_note"), action: #selector(newNote), keyEquivalent: "n")
+        let allNotesItem = appMenu.addItem(withTitle: L10n.text("menu.all_notes"), action: #selector(openAllNotes), keyEquivalent: "a")
+        let archiveItem = appMenu.addItem(withTitle: L10n.text("menu.archive"), action: #selector(openArchive), keyEquivalent: "l")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        appMenu.addItem(withTitle: L10n.text("menu.settings"), action: #selector(openSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Import…", action: #selector(importStickies), keyEquivalent: "i")
+        appMenu.addItem(withTitle: L10n.text("menu.import"), action: #selector(importStickies), keyEquivalent: "i")
         appMenu.addItem(.separator())
-        let bigger = appMenu.addItem(withTitle: "Bigger Text", action: #selector(biggerText), keyEquivalent: "+")
+        let bigger = appMenu.addItem(withTitle: L10n.text("menu.bigger_text"), action: #selector(biggerText), keyEquivalent: "+")
         bigger.keyEquivalentModifierMask = [.control]
-        let smaller = appMenu.addItem(withTitle: "Smaller Text", action: #selector(smallerText), keyEquivalent: "-")
+        let smaller = appMenu.addItem(withTitle: L10n.text("menu.smaller_text"), action: #selector(smallerText), keyEquivalent: "-")
         smaller.keyEquivalentModifierMask = [.control]
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Noty", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "Quit Noty", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L10n.text("menu.hide"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: L10n.text("menu.quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         // The three global shortcuts already carry ⌥; mirror that here so the menu
         // items do not shadow ⌘N / ⌘A / ⌘L inside text fields.
-        for title in ["New Note", "All Notes", "Archive"] {
-            appMenu.item(withTitle: title)?.keyEquivalentModifierMask = [.command, .option]
+        for item in [newNoteItem, allNotesItem, archiveItem] {
+            item.keyEquivalentModifierMask = [.command, .option]
         }
         for item in appMenu.items where item.action != nil
             && item.action != #selector(NSApplication.hide(_:))
@@ -177,15 +266,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(appItem)
 
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "Edit")
-        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        let edit = NSMenu(title: L10n.text("menu.edit"))
+        edit.addItem(withTitle: L10n.text("menu.undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: L10n.text("menu.redo"), action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         edit.addItem(.separator())
-        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: L10n.text("menu.cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L10n.text("menu.copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L10n.text("menu.paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L10n.text("menu.select_all"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         main.addItem(editItem)
 

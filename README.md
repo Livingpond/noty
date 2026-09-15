@@ -56,6 +56,20 @@ right-click the pill → *Deck size* for the four presets.
 tabs and their labels stay on the edge without being hovered first. Off by
 default; notes still open, close and idle away exactly as before.
 
+## Automation
+
+Noty registers the `noty://` URL scheme, so Shortcuts, Raycast, Alfred or a
+terminal can talk to it:
+
+```sh
+open "noty://new?text=Buy%20milk"   # create a note with this text
+open "noty://capture"               # open the quick-capture box
+open "noty://all"                   # the All Notes window
+open "noty://settings"              # Settings
+```
+
+The text only ever becomes note content — nothing in a URL is executed.
+
 ## Shortcuts
 
 All of these are listed in Settings (`⌘,`), and the first four can be rebound
@@ -65,6 +79,7 @@ Accessibility permission is required**:
 | | |
 |---|---|
 | `⌥⌘N` | new note (opens it straight away) |
+| `⇧⌘Space` | quick capture — jot without opening the editor |
 | `⌥⌘A` | All Notes |
 | `⌥⌘L` | the Archive window |
 
@@ -97,12 +112,42 @@ Tasks live inline in the note body as `☐` / `☑` prefixes, so a note stays pl
 text. Markdown export writes them as standard `- [ ]` / `- [x]` task syntax and
 import reads that back. All Notes shows a `done/total` count per note.
 
+## Images
+
+Paste (`⌘V` with an image on the clipboard), drag an image file in, or
+right-click → **Insert Image…**. The picture renders inline at full width by
+default; underneath it the body keeps a one-line token,
+`![image](noty-img://<UUID>)`. Unlike the other markdown markers the token
+never surfaces just because the caret is near — clicking the image parks the
+caret right after it, and pressing delete there reveals the token, fully
+selected, as a confirmation step: delete again to remove the image, or type,
+press Return/Space, paste or click elsewhere to keep it and the picture
+comes straight back.
+
+Hover an image for a drag handle at its bottom-right corner; drag to resize,
+and the height follows the aspect ratio. The width is written back into the
+token — `![image|300](noty-img://…)` — so sizes survive restarts and
+export/import.
+
+Images live as files under `~/Library/Application Support/Noty/Images/` and
+are deleted when the last note referencing them is deleted. `.stickies`
+export archives carry them as base64, so a round-trip keeps every picture.
+
 ## Everything else
 
 - **Archived, not deleted.** Archiving pulls a note out of the deck but keeps it
   in All Notes → Archive, restorable at any time.
+- **Quick capture** (`⇧⌘Space`) — a small floating box from anywhere: type,
+  hit `↩`, and it becomes a note in the deck without opening the editor.
+  `⇧↩` for a new line, `esc` to cancel, click away to dismiss. A row of
+  chips picks the destination — a fresh note, or appended to the end of an
+  existing one (`⌘1` for new, `⌘2`… for the tabs); the box's paper colour
+  previews where the text will land.
 - **All Notes** (`⌥⌘A`) — one window, search across every note body and title,
   with an editable detail pane.
+- **Bidirectional text** — each note can follow its content automatically or be
+  forced left-to-right or right-to-left from the direction menu in its header.
+  The choice also applies in the All Notes editor and survives archive exports.
 - **Multi-display & relocation** — show the deck on all displays, only the main
   screen, or a specific monitor. Hold `⌥ Option` and drag the pill to dock it to
   any edge, height, or display. Displays are tracked by `CGDirectDisplayID`, so
@@ -112,13 +157,17 @@ import reads that back. All Notes shows a `done/total` count per note.
   over a full-screen space.
 - **Autosave** 250 ms after you stop typing, and again on close.
 - **Settings** (`⌘,`, the cog under the deck's `+`, or right-click the pill) —
-  four tabs. *Shortcuts* rebinds all twelve. *Deck* covers style, size, which
+  five tabs. *Shortcuts* rebinds all twelve. *Deck* covers style, size, which
   display carries it, the edge, how far from it the pointer wakes the deck, and
   whether the tabs stay out. *Notes* has the face, text size, note size and
-  Markdown. *Updates* shows the version, when it last checked, and checks now.
+  Markdown. *Sync* mirrors notes into iCloud Drive (off by default). *Updates*
+  shows the version, when it last checked, and checks now.
   Everything applies immediately.
 - **Open on hover.** Off by default: turn it on and resting the pointer on a tab
   opens that note without a click.
+- **Tab preview on hover.** Rest on any tab to peek at a flyout card showing its
+  title, checklist progress and content snippet without opening the full note.
+  Turning on open-on-hover replaces it — the note itself opens instead.
 - **Markdown as you type.** `# headings`, `**bold**`, `*italic*`, `` `code` ``,
   `~~struck~~`, `> quotes`, `- bullets` and `[links](https://example.com)` are
   styled in place. Markers are hidden on every line but the one the caret is on,
@@ -130,6 +179,17 @@ import reads that back. All Notes shows a `done/total` count per note.
   never turn into a launcher.
 - **Drag to reorder.** Drag a tab up or down and the others step aside to show
   where it will land.
+- **Pull a note anywhere.** Grab the open note by its tab-gutter and drag it
+  off the deck — it becomes a floating sticky wherever you drop it, draggable
+  by its header, across displays, and resizable from any edge or corner. It
+  remembers the size you stretch it to. Idle a minute and it tucks itself back to
+  the edge, exactly like a note on the deck. Unpinned it stacks like any
+  window — other windows can cover it; pin it and it stays on top and never
+  tucks. One floats
+  at a time — pulling out a second tucks the first.
+- **Hide the deck completely.** Settings → Deck: nothing shows at rest — no
+  pill, no dashes. The edge strip still wakes the tabs on hover. Off by
+  default.
 - **Pin a note to keep it open.** The pin in a note's header (or `⌘P`) stops it
   being dismissed by anything you did not aim at it — clicking away in another
   app, or leaving it idle. Esc and Close still close it. Pinned tabs carry a dot,
@@ -143,8 +203,43 @@ import reads that back. All Notes shows a `done/total` count per note.
   a single document, or a `.stickies` archive that preserves colours, archived
   state and dates. **Import** reads `.stickies` back, and will also take loose
   `.md` / `.txt` files.
+- **Sync to iPhone and iPad through iCloud Drive.** Settings → Sync. Each note
+  becomes one Markdown file in iCloud Drive with a small header carrying its
+  colour, dates and identity; open the folder in Files on the phone and edit
+  them in any Markdown editor. Edits travel both ways, new files written on the
+  phone become notes, and deletions propagate. When both sides changed the newer
+  edit wins and the other version is kept in `Noty/Conflicts/`, never discarded.
 - Right-click the pill for the full menu: new note, windows, edge side, launch at
   login, export, import, quit.
+
+### On the phone
+
+Reading needs nothing: tap a file in **Files** and Quick Look renders the
+Markdown. Editing needs an editor that writes **in place**, because sync reads
+the file's own modification date to notice a change. [Taio][taio] is free and a
+good starting point; [Runestone][runestone] (free), [Textastic][textastic] and
+Obsidian (*Open folder as vault* → `iCloud Drive/Noty`) all edit in place too.
+
+Avoid anything that takes a *copy* through an "Open in…" share sheet. Saving
+then leaves a second file carrying the same `noty-id`, which is not what you
+meant and not something Noty can make sense of. Opening the file from the
+editor's own Files browser avoids this.
+
+To write a note on the phone, make an ordinary `.md` file in the `Noty` folder —
+no header, one line of text is enough. The Mac picks it up on its next pass,
+generates an id, writes the header back, and the note joins the deck under the
+filename you chose, titled by its first line. Tasks written as `- [ ]` / `- [x]`
+become `☐` / `☑` on the deck and come back as Markdown. A first line of `---` is
+safe; it is not mistaken for a header.
+
+Two things worth knowing. The sync engine lives in the Mac app, so a file
+written on the phone is picked up when the Mac is running, or next time it
+starts. And `Noty/Conflicts/` is an archive of versions that lost a conflict —
+it is there to be read and pruned by hand, and never syncs back.
+
+[taio]: https://taio.app
+[runestone]: https://runestone.app
+[textastic]: https://www.textasticapp.com
 
 ## Your notes stay on your Mac
 
@@ -157,6 +252,14 @@ import reads that back. All Notes shows a `done/total` count per note.
   newer version exists. Nothing about your notes is sent — it is a plain GET of
   a public XML file. Turn it off with *Check automatically* in the pill's menu,
   and it never fires again.
+- **iCloud sync is off until you switch it on.** With it off, none of the above
+  changes: nothing is written outside `~/Library/Application Support/Noty/`.
+  Switched on (Settings → Sync), Noty mirrors each note into
+  `~/Library/Mobile Documents/com~apple~CloudDocs/Noty/` as a plain Markdown
+  file so it can be read on an iPhone or iPad. **Those files are not encrypted** —
+  they cannot be, or nothing on the phone could open them. The SQLite database on
+  this Mac stays AES-GCM encrypted either way. It uses the iCloud Drive folder
+  macOS already syncs; there is no Noty server, no account and no third party.
 - No Accessibility permission, no Screen Recording, no system permissions.
 
 Verify it yourself:
@@ -169,7 +272,11 @@ strings ~/Library/Application\ Support/Noty/notes.db | grep "some text from a no
 ## Build
 
 Requires the Swift toolchain from Command Line Tools (**Xcode is not needed**)
-and macOS 15+.
+and macOS 15+. A local release build produces a universal app; releases ship
+one DMG per architecture instead — `Noty.dmg` for Apple Silicon and
+`Noty-intel.dmg` for Intel, each a third smaller than a universal image, with
+its own Sparkle feed (`appcast.xml` / `appcast-intel.xml`) baked into the build
+so updates stay on the right architecture.
 
 ```sh
 ./scripts/fetch-sparkle.sh   # once — pulls the Sparkle binary framework
@@ -181,7 +288,8 @@ and macOS 15+.
 open build/Noty.app
 ```
 
-`build.sh` drives `swiftc` directly over `Sources/*.swift`, assembles the
+`build.sh` drives `swiftc` directly over `Sources/*.swift` for both supported
+architectures, combines the resulting binaries with `lipo`, assembles the
 `.app` bundle around `Info.plist`, embeds Sparkle, and signs it.
 
 Sparkle is optional. Without `Sparkle/Sparkle.framework` the app still builds —
@@ -265,6 +373,15 @@ Sources/
   NoteEditor.swift      NSTextView bridge, find, 250 ms autosave
   LibraryWindow.swift   All Notes / Archive
   ExportImport.swift    md / txt / single file / .stickies
+<<<<<<< HEAD
+  NoteDocument.swift    the front-matter markdown form of a note
+  CloudFolder.swift     the iCloud Drive folder: paths, names, coordinated I/O
+  CloudSyncIndex.swift  what the last sync pass saw
+  SyncPlan.swift        pure decision table: notes + files + index → actions
+  CloudSync.swift       runs the actions, schedules the passes
+=======
+  ImageStore.swift      on-disk image files, noty-img:// token helpers
+>>>>>>> pr35
   UndoToast.swift       the ten-second undo after a delete
 ```
 
@@ -288,6 +405,11 @@ Set `NOTY_DEBUG_DECK=1` in the environment to trace deck state transitions on st
 - **Not sandboxed**, so data lives in `~/Library/Application Support/Noty/`
   rather than `~/Library/Containers/`. Sandboxing needs a provisioning profile,
   which needs Xcode and a developer account.
+- Sync goes through the iCloud Drive **folder**, not CloudKit. CloudKit needs the
+  `com.apple.developer.icloud-container-identifiers` entitlement, which needs a
+  provisioning profile, which needs Xcode and a paid developer account — the same
+  wall that keeps the app unsandboxed. The folder is a plain path any
+  non-sandboxed app may use, and macOS syncs it.
 - The AES key is a `0600` file beside the database. The Keychain is the right
   home for it in a distributed build, but an ad-hoc signature changes on every
   rebuild, which makes the Keychain re-prompt or deny each time.

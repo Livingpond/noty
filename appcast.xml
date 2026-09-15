@@ -6,13 +6,13 @@
     <description>Sticky notes that live at the edge of your screen.</description>
     <language>en</language>
     <item>
-      <title>1.2.0</title>
-      <pubDate>Mon, 31 Aug 2026 23:02:30 +0000</pubDate>
-      <sparkle:version>57</sparkle:version>
-      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+      <title>1.7.0</title>
+      <pubDate>Thu, 10 Sep 2026 03:49:03 +0000</pubDate>
+      <sparkle:version>126</sparkle:version>
+      <sparkle:shortVersionString>1.7.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>Noty 1.2.0</p><ul><li><a href="https://github.com/aimen08/noty/pull/2">#2</a> 修复中文输入法输入内容丢失 &mdash; @a835100635</li><li><a href="https://github.com/aimen08/noty/pull/6">#6</a> Let the deck stay fanned out instead of folding back to the pill &mdash; @hdob-macko</li><li><a href="https://github.com/aimen08/noty/pull/7">#7</a> Add a deck size preference so the tabs can be scaled &mdash; @hdob-macko</li><li><a href="https://github.com/aimen08/noty/pull/8">#8</a> Improve editor input performance with incremental styling &mdash; @Bazingabc</li><li><a href="https://github.com/aimen08/noty/pull/10">#10</a> Allow relocating the deck across displays and edges with Option-drag (fixes #4) &mdash; @Pioneer113</li></ul><p>Thanks to @speech115.</p>]]></description>
-      <enclosure url="https://github.com/aimen08/noty/releases/download/v1.2.0/Noty-1.2.0.dmg" type="application/octet-stream" sparkle:edSignature="zhRdRm3pBvWhgG3xFCy7ged8GGPXykRUs00mhIkDg6dXj8d8QJxMg+uDbp2LaiECLOWTFDh2+nHItVZZYv5QCQ==" length="1830709" />
+      <description><![CDATA[<p>Noty 1.7.0</p><ul><li><a href="https://github.com/aimen08/noty/pull/33">#33</a> Sync notes to iPhone and iPad through the iCloud Drive folder &mdash; @vasyakrg</li><li><a href="https://github.com/aimen08/noty/pull/35">#35</a> Inline images in note bodies &mdash; @Libeny</li></ul><p>Answered issues:</p><ul><li><a href="https://github.com/aimen08/noty/issues/32">#32</a> Sync notes to iPhone/iPad through the iCloud Drive folder — would you want this? &mdash; requested by @vasyakrg</li><li><a href="https://github.com/aimen08/noty/issues/34">#34</a> Feature idea: animated reflow when notes join or leave the deck &mdash; requested by @workingpleasewait</li><li><a href="https://github.com/aimen08/noty/issues/36">#36</a> Hide tool icons &mdash; requested by @xiatouman</li></ul><p>Thanks to @Libeny, @vasyakrg.</p>]]></description>
+      <enclosure url="https://github.com/aimen08/noty/releases/download/v1.7.0/Noty.dmg" type="application/octet-stream" sparkle:edSignature="40jERrkUrI/ZMAbgcNWT7GrJAU83eUuPpWmHpZM9oocI9/UWqfby0Lg2c5+HKxVzZbKAWex99bg/x8N18qY2Cw==" length="2107672" />
     </item>
   </channel>
 </rss>
