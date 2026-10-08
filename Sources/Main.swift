@@ -6,7 +6,6 @@ enum NotyMain {
     private static let delegate = AppDelegate()
 
     static func main() {
-        BundledFonts.registerAll()
         let app = NSApplication.shared
         app.delegate = delegate
         app.setActivationPolicy(.accessory)

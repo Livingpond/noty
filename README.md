@@ -292,7 +292,6 @@ so updates stay on the right architecture.
 
 ```sh
 ./scripts/fetch-sparkle.sh   # once — pulls the Sparkle binary framework
-./scripts/fetch-fonts.sh     # once — pulls the bundled open-source CJK fonts
 ./build.sh                   # release build → build/Noty.app
 ./build.sh debug             # fast, unoptimised
 ./build.sh release run       # build, then relaunch

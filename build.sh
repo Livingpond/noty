@@ -73,8 +73,6 @@ fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $MARKETING_VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
 [ -f "$ROOT/Resources/AppIcon.icns" ] && cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
-# Bundled open-source CJK fonts (fetch them with scripts/fetch-fonts.sh).
-[ -d "$ROOT/Resources/Fonts" ] && cp -R "$ROOT/Resources/Fonts" "$APP/Contents/Resources/Fonts"
 for LOCALIZATION in "$ROOT"/Resources/*.lproj; do
     [ -d "$LOCALIZATION" ] && cp -R "$LOCALIZATION" "$APP/Contents/Resources/"
 done

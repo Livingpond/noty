@@ -169,22 +169,6 @@ enum Ink {
         NoteFace(name: "New York",     body: "NewYork-Regular",      tab: "NewYork-Semibold",     bump: 0),
         NoteFace(name: "Georgia",      body: "Georgia",              tab: "Georgia-Bold",         bump: 0),
         NoteFace(name: "Menlo",        body: "Menlo-Regular",        tab: "Menlo-Bold",           bump: -1),
-
-        // CJK faces already on this Mac; the installed check below hides any
-        // a system lacks, so these are safe to offer unconditionally.
-        NoteFace(name: "苹方",        body: "PingFangSC-Regular",    tab: "PingFangSC-Semibold",  bump: 0),
-        NoteFace(name: "楷体",        body: "STKaitiSC-Regular",     tab: "STKaitiSC-Bold",       bump: 0),
-        NoteFace(name: "宋体",        body: "STSongti-SC-Regular",   tab: "STSongti-SC-Bold",     bump: 0),
-        NoteFace(name: "圆体",        body: "STYuanti-SC-Regular",   tab: "STYuanti-SC-Bold",     bump: 0),
-        NoteFace(name: "冬青黑体",     body: "HiraginoSansGB-W3",    tab: "HiraginoSansGB-W6",    bump: 0),
-
-        // Bundled open-source CJK faces (scripts/fetch-fonts.sh). They are
-        // registered from the bundle at launch, so they are filtered by the
-        // same installed check as the rest.
-        NoteFace(name: "霞鹜文楷",      body: "LXGWWenKai-Regular",   tab: "LXGWWenKai-Medium",    bump: 0),
-        NoteFace(name: "思源黑体",      body: "NotoSansSC-Regular",   tab: "NotoSansSC-Bold",      bump: 0),
-        NoteFace(name: "思源宋体",      body: "NotoSerifSC-Regular",  tab: "NotoSerifSC-Bold",     bump: 0),
-        NoteFace(name: "得意黑",        body: "SmileySans-Oblique",   tab: "SmileySans-Oblique",   bump: 0),
     ]
 
     /// Installed faces do not change while the app runs, and this is asked for on
