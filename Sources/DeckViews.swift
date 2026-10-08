@@ -18,9 +18,9 @@ struct DeckRootView: View {
     /// An empty deck still draws one tab, so the stack is never zero-height.
     private var itemCount: Int { max(1, visible.count) }
 
-    /// Widest label currently on the deck — drives how tall each tab's strip is.
+    /// Longest vertical label currently on the deck — drives each tab's strip.
     private var longestLabel: CGFloat {
-        visible.map { DeckGeom.labelWidth($0.displayTitle) }.max() ?? 0
+        visible.map { DeckGeom.verticalLabelHeight($0.displayTitle) }.max() ?? 0
     }
 
     private func layout(_ panelHeight: CGFloat) -> DeckLayout {
@@ -52,6 +52,7 @@ struct DeckRootView: View {
                 PillView(notes: store.active)
                     .padding(.top, pillTop(panelHeight: h))
                     .padding(onRight ? .trailing : .leading, 1)
+                    .transaction { $0.animation = nil }
                     .opacity(deck.state == .rest && !deck.pillHidden ? 1 : 0)
                     .animation(.easeInOut(duration: 0.20).delay(deck.state == .rest ? 0.12 : 0), value: deck.state)
 
@@ -82,7 +83,10 @@ struct DeckRootView: View {
     /// panel grows around it or shrinks back to it.
     private func pillTop(panelHeight h: CGFloat) -> CGFloat {
         let pillH = DeckGeom.pillHeight(noteCount: max(1, store.active.count))
-        return (1.0 - Settings.deckYRatio) * max(0, h - pillH)
+        let span = max(0, h - pillH)
+        // Complement of the rounded offset the resting panel origin uses, so
+        // the pill occupies the very pixels the shrunk panel will occupy.
+        return span - (span * Settings.deckYRatio).rounded()
     }
 
     private func fanTop(_ lay: DeckLayout, panelHeight h: CGFloat) -> CGFloat {
@@ -454,6 +458,78 @@ func edgeTabShape(onRight: Bool, radius r: CGFloat = 11) -> UnevenRoundedRectang
 
 // MARK: - Tabs
 
+/// Draws a title down the tab while respecting Unicode's usual vertical
+/// presentation. CJK characters and emoji stay upright; Latin, numbers and
+/// other scripts remain a rotated run so words do not become a stack of
+/// disconnected letters.
+struct VerticalTabLabel: View {
+    let title: String
+    let strip: CGFloat
+    let onRight: Bool
+    let ink: Color
+
+    private var text: String { title.uppercased() }
+    private var runs: [VerticalLabelRun] { VerticalLabelLayout.runs(for: text) }
+    private var usesUprightGlyphs: Bool {
+        runs.contains { $0.orientation == .upright }
+    }
+    private var availableAdvance: CGFloat {
+        max(20, strip - DeckGeom.labelInset)
+    }
+
+    var body: some View {
+        if usesUprightGlyphs {
+            let fitted = VerticalLabelLayout.fittingRuns(for: text,
+                                                         maxAdvance: availableAdvance)
+            let displayRuns = onRight ? fitted : Array(fitted.reversed())
+            VStack(spacing: 0) {
+                ForEach(Array(displayRuns.enumerated()), id: \.offset) { _, run in
+                    runView(run, availableWidth: availableAdvance)
+                }
+            }
+            // Keep short upright titles centred in the exposed strip just like
+            // the rotated Text path. A top anchor makes a four-character CJK
+            // title look stranded at the edge of a tall tab.
+            .frame(width: DeckGeom.tabWidth, height: strip, alignment: .center)
+        } else {
+            // Keep the established treatment for titles with no upright
+            // characters: one rotated Text preserves normal word shaping and
+            // SwiftUI's native tail ellipsis.
+            Text(text)
+                .font(Ink.tabFont)
+                .tracking(Ink.tabTracking)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(ink.opacity(0.85))
+                .frame(width: availableAdvance, height: DeckGeom.tabWidth)
+                .rotationEffect(.degrees(onRight ? 90 : -90))
+                .frame(width: DeckGeom.tabWidth, height: strip)
+        }
+    }
+
+    @ViewBuilder
+    private func runView(_ run: VerticalLabelRun, availableWidth: CGFloat) -> some View {
+        switch run.orientation {
+        case .upright:
+            Text(run.text)
+                .font(Ink.tabFont)
+                .foregroundStyle(ink.opacity(0.85))
+                .frame(width: max(20, DeckGeom.tabWidth - DeckGeom.labelInset),
+                       height: run.advance)
+        case .rotated:
+            Text(run.text)
+                .font(Ink.tabFont)
+                .tracking(Ink.tabTracking)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(ink.opacity(0.85))
+                .frame(width: availableWidth, height: DeckGeom.tabWidth)
+                .rotationEffect(.degrees(onRight ? 90 : -90))
+                .frame(width: DeckGeom.tabWidth, height: run.advance)
+        }
+    }
+}
+
 /// A tab keeps its colour and carries its label turned on its side.
 ///
 /// Tabs overlap, so the label is pinned to the top of the tab — the part that
@@ -509,16 +585,10 @@ struct VerticalTab: View {
                 .shadow(color: .black.opacity(lifted ? 0.42 : (isOpen || hovering ? 0.32 : 0.22)),
                         radius: lifted ? 16 : (isOpen || hovering ? 9 : 6),
                         x: onRight ? -3 : 3, y: lifted ? 6 : 2)
-            Text(note.displayTitle.uppercased())
-                .font(Ink.tabFont)
-                .tracking(Ink.tabTracking)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(note.palette.ink.opacity(0.85))
-                .frame(width: max(20, strip - DeckGeom.labelInset),
-                       height: DeckGeom.tabWidth)
-                .rotationEffect(.degrees(onRight ? 90 : -90))
-                .frame(width: DeckGeom.tabWidth, height: strip)
+            VerticalTabLabel(title: note.displayTitle,
+                             strip: strip,
+                             onRight: onRight,
+                             ink: note.palette.ink)
                 .offset(x: onRight ? -DeckGeom.bleed / 2 : DeckGeom.bleed / 2)
         }
         .frame(width: DeckGeom.tabWidth + DeckGeom.bleed, height: height, alignment: .top)
@@ -722,7 +792,7 @@ struct PlusButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "plus")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary.opacity(0.75))
                 .frame(width: DeckGeom.plusSize, height: DeckGeom.plusSize)
                 .background(Circle().fill(.regularMaterial)
@@ -746,7 +816,7 @@ struct CogButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "gearshape")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary.opacity(hovering ? 0.8 : 0.5))
                 .frame(width: DeckGeom.cogSize, height: DeckGeom.cogSize)
                 .background(Circle().fill(.regularMaterial)

@@ -197,10 +197,37 @@ enum Ink {
     static var face: NoteFace {
         let want = Settings.noteFontName
         if let cached = faceCache, cached.name == want { return cached.face }
-        let resolved = faces.first { $0.body == want } ?? faces[0]
+        let resolved = faces.first { $0.body == want }
+            ?? resolveCustomFace(name: want)
+            ?? faces[0]
         faceCache = (want, resolved)
         return resolved
     }
+
+    /// Build a `NoteFace` on the fly for any installed font given its PostScript name.
+    static func resolveCustomFace(name: String) -> NoteFace? {
+        guard !name.isEmpty,
+              let font = NSFont(name: name, size: 12) else { return nil }
+        let family = font.familyName ?? name
+        let bold = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        return NoteFace(name: family, body: name, tab: bold.fontName, bump: 0)
+    }
+
+    /// Every installed font family with its members, sorted alphabetically.
+    /// Computed once — the set of installed fonts does not change while the app runs.
+    static let allSystemFontFamilies: [(family: String, members: [(postScript: String, displayName: String)])] = {
+        let fm = NSFontManager.shared
+        return fm.availableFontFamilies.sorted().compactMap { family in
+            guard let members = fm.availableMembers(ofFontFamily: family) else { return nil }
+            let mapped = members.compactMap { info -> (postScript: String, displayName: String)? in
+                guard let postScript = info[0] as? String,
+                      let displayName = info[1] as? String else { return nil }
+                return (postScript: postScript, displayName: displayName)
+            }
+            guard !mapped.isEmpty else { return nil }
+            return (family: family, members: mapped)
+        }
+    }()
 
     /// The hand (or face) note bodies are set in.
     static func body(_ size: CGFloat) -> NSFont {
@@ -442,7 +469,8 @@ enum Tasks {
     static let donePrefix = "\u{2611} "
 
     static func marker(of line: some StringProtocol) -> Character? {
-        guard let f = line.first, f == open || f == done else { return nil }
+        let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
+        guard let f = trimmed.first, f == open || f == done else { return nil }
         return f
     }
 
@@ -451,7 +479,8 @@ enum Tasks {
     /// Strip the marker for display in lists and titles.
     static func stripped(_ line: some StringProtocol) -> String {
         guard isTask(line) else { return String(line) }
-        return String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
+        let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
+        return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
     }
 
     /// Markdown task syntax in, ☐/☑ out.

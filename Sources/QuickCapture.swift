@@ -33,7 +33,8 @@ final class QuickCapture: NSObject, NSWindowDelegate {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.level = .statusBar
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.collectionBehavior = Settings.confineToSpace
+            ? [.fullScreenAuxiliary] : [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isReleasedWhenClosed = false
         p.delegate = self
         p.contentView = NSHostingView(rootView: CaptureView(
@@ -124,7 +125,7 @@ private struct CaptureView: View {
                 // quick note. One glance answers "where will this land".
                 Text(targetID.flatMap { NoteStore.shared.note(id: $0)?.displayTitle }
                      ?? L10n.text("capture.title"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Ink.bodyFont(11).weight(.semibold))
                     .foregroundStyle(pal.ink.opacity(0.55))
                     .lineLimit(1)
                 Spacer(minLength: 10)
@@ -159,7 +160,7 @@ private struct CaptureView: View {
                 }
 
             Text(L10n.text("capture.hint"))
-                .font(.system(size: 10))
+                .font(Ink.bodyFont(10))
                 .foregroundStyle(pal.ink.opacity(0.4))
         }
         .padding(14)

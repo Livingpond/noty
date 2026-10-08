@@ -9,6 +9,18 @@ deck fans out.
 **[noty-sepia.vercel.app](https://noty-sepia.vercel.app)** ·
 **[Download the latest DMG](https://github.com/aimen08/noty/releases/latest/download/Noty.dmg)**
 
+Or with [Homebrew](https://brew.sh):
+
+```sh
+brew tap aimen08/noty https://github.com/aimen08/noty
+brew trust aimen08/noty      # Homebrew 7+ asks you to trust a third-party tap
+brew install --cask noty
+```
+
+The cask picks the Apple Silicon or Intel build for you, and updates after that
+arrive in-app. The app is ad-hoc signed, so the first launch needs a
+right-click → Open.
+
 ![Noty in use: the deck fans out from the screen edge, a checklist is pulled open, two tasks are ticked off, and the note is dismissed by clicking away](demo.gif)
 
 | At rest | Fanned | A note pulled open |
@@ -20,7 +32,7 @@ deck fans out.
 | State | What you see | Trigger |
 |---|---|---|
 | **Rest** | A 12 pt pill on the screen edge — one coloured dash per note | idle |
-| **Fan** | Notes shingle down the edge 45 ms apart as vertical tabs, each keeping its colour and carrying its label turned on its side | pointer enters the pill |
+| **Fan** | Notes shingle down the edge 45 ms apart as vertical tabs, each keeping its colour and carrying its label vertically — CJK and emoji glyphs stay upright | pointer enters the pill |
 | **Expanded** | The note slides clear of the deck at full size, level with its own tab, which stays visible behind it | click a tab |
 
 The deck shows **five notes at a time** and puts the rest behind a `+N` tab, which
@@ -118,14 +130,14 @@ Paste (`⌘V` with an image on the clipboard), drag an image file in, or
 right-click → **Insert Image…**. The picture renders inline at full width by
 default; underneath it the body keeps a one-line token,
 `![image](noty-img://<UUID>)`. Unlike the other markdown markers the token
-never surfaces just because the caret is near — clicking the image parks the
-caret right after it, and pressing delete there reveals the token, fully
-selected, as a confirmation step: delete again to remove the image, or type,
-press Return/Space, paste or click elsewhere to keep it and the picture
-comes straight back.
+never surfaces — clicking the image selects it, arrow keys cross it like a
+single character, and deleting at it removes the whole image (and its line)
+in one undoable step.
 
-Hover an image for a drag handle at its bottom-right corner; drag to resize,
-and the height follows the aspect ratio. The width is written back into the
+Click an image to select it — a white-and-accent frame with corner and edge
+grips outlines its exact bounds, and dragging a grip shows the live
+`width × height` badge while the height follows the aspect ratio. Clicking or
+typing anywhere else drops the selection. The width is written back into the
 token — `![image|300](noty-img://…)` — so sizes survive restarts and
 export/import.
 
@@ -373,15 +385,12 @@ Sources/
   NoteEditor.swift      NSTextView bridge, find, 250 ms autosave
   LibraryWindow.swift   All Notes / Archive
   ExportImport.swift    md / txt / single file / .stickies
-<<<<<<< HEAD
   NoteDocument.swift    the front-matter markdown form of a note
   CloudFolder.swift     the iCloud Drive folder: paths, names, coordinated I/O
   CloudSyncIndex.swift  what the last sync pass saw
   SyncPlan.swift        pure decision table: notes + files + index → actions
   CloudSync.swift       runs the actions, schedules the passes
-=======
   ImageStore.swift      on-disk image files, noty-img:// token helpers
->>>>>>> pr35
   UndoToast.swift       the ten-second undo after a delete
 ```
 

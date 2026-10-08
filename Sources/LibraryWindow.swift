@@ -201,21 +201,21 @@ struct LibraryView: View {
                 .frame(width: 3.5, height: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(note.displayTitle)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(Ink.bodyFont(12.5).weight(.medium))
                     .lineLimit(1)
                 HStack(spacing: 5) {
                     Text(Fmt.ago(note.modified))
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .font(Ink.bodyFont(10)).foregroundStyle(.secondary)
                     if let p = note.taskProgress {
                         Label("\(p.done)/\(p.total)",
                               systemImage: p.done == p.total ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 9.5))
+                            .font(Ink.bodyFont(9.5))
                             .foregroundStyle(p.done == p.total ? Color.green : .secondary)
                             .labelStyle(.titleAndIcon)
                     }
                     if !note.preview.isEmpty {
                         Text(note.preview)
-                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                            .font(Ink.bodyFont(10)).foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
                 }
@@ -298,7 +298,7 @@ struct LibraryDetail: View {
                         .textFieldStyle(.plain)
                         .lineLimit(1)
                 }
-                .font(.system(size: 13, weight: .semibold))
+                .font(Ink.bodyFont(13).weight(.semibold))
                 .contextMenu {
                     if note.hasCustomTitle {
                         Button(L10n.text("note.title_reset")) {
@@ -310,7 +310,7 @@ struct LibraryDetail: View {
                 Spacer()
                 Text(store.unsavedIDs.contains(note.id) ? L10n.text("note.not_saved")
                      : L10n.format("note.edited", Fmt.ago(note.modified)))
-                    .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    .font(Ink.bodyFont(10.5)).foregroundStyle(.secondary)
 
                 NoteTextDirectionMenu(direction: note.textDirection,
                                       foreground: .secondary) {

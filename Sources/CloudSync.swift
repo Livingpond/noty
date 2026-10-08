@@ -166,9 +166,10 @@ final class CloudSync {
     }
 
     private func adopt(fileName: String) {
-        guard var incoming = scanned[fileName],
+        guard var incoming = scanned[fileName] ?? (folder.read(fileName).map {
+            NoteDocument.parse($0, fallbackTitle: (fileName as NSString).deletingPathExtension).note
+        }),
               let fileModified = folder.modificationDate(of: fileName) else { return }
-
         incoming.id = UUID().uuidString
         incoming.created = fileModified
         incoming.modified = fileModified

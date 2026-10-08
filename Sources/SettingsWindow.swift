@@ -115,6 +115,7 @@ final class SettingsModel: ObservableObject {
     @Published var screens: [NSScreen] = NSScreen.screens
     @Published var edgeWidth: Double    { didSet { Settings.edgeWidth = edgeWidth; apply() } }
     @Published var overFullScreen: Bool { didSet { Settings.showOverFullScreen = overFullScreen; apply() } }
+    @Published var confineToSpace: Bool { didSet { Settings.confineToSpace = confineToSpace; apply() } }
     @Published var launchAtLogin: Bool  { didSet { Settings.launchAtLogin = launchAtLogin } }
 
     @Published var autoUpdate: Bool {
@@ -171,6 +172,7 @@ final class SettingsModel: ObservableObject {
         screens = NSScreen.screens
         edgeWidth = Settings.edgeWidth
         overFullScreen = Settings.showOverFullScreen
+        confineToSpace = Settings.confineToSpace
         launchAtLogin = Settings.launchAtLogin
         autoUpdate = Updater.available && Updater.shared.automaticallyChecks
         fontName = Settings.noteFontName
@@ -329,76 +331,78 @@ struct SettingsView: View {
         // note settings compete for the same eye. Tabs are what a Settings window
         // is supposed to be, and they leave somewhere obvious to put updates.
         TabView {
-            pane(L10n.text("settings.shortcuts.caption")) { shortcutsTab }
+            pane { shortcutsTab }
                 .tabItem { Label(L10n.text("settings.shortcuts.tab"), systemImage: "command") }
-            pane(L10n.text("settings.deck.caption")) { deckTab }
+            pane { deckTab }
                 .tabItem { Label(L10n.text("settings.deck.tab"), systemImage: "menucard") }
-            pane(L10n.text("settings.notes.caption")) { notesTab }
+            pane { notesTab }
                 .tabItem { Label(L10n.text("settings.notes.tab"), systemImage: "textformat") }
-            pane(L10n.text("settings.sync.caption")) { syncTab }
+            pane { syncTab }
                 .tabItem { Label(L10n.text("settings.sync.tab"), systemImage: "icloud") }
-            pane(L10n.text("settings.updates.caption")) { updatesTab }
+            pane { updatesTab }
                 .tabItem { Label(L10n.text("settings.updates.tab"), systemImage: "arrow.triangle.2.circlepath") }
         }
-        .padding(14)
         .frame(width: 600, height: 500)
     }
 
+    // MARK: tabs
+
     @ViewBuilder
     private var shortcutsTab: some View {
-        // Two columns: twelve stacked rows made the window scroll for
-        // what is really a reference table.
-        HStack(alignment: .top, spacing: 26) {
-            VStack(alignment: .leading, spacing: 7) {
-                subhead(L10n.text("settings.shortcuts.global"))
-                shortcutRow(L10n.text("shortcut.new_note"), model.scNewNote, "new") { model.scNewNote = $0 }
-                shortcutRow(L10n.text("shortcut.all_notes"), model.scAllNotes, "all") { model.scAllNotes = $0 }
-                shortcutRow(L10n.text("shortcut.archive_window"), model.scArchive, "archive") { model.scArchive = $0 }
-                shortcutRow(L10n.text("shortcut.quick_capture"), model.scCapture, "capture") { model.scCapture = $0 }
-                Spacer(minLength: 0)
-            }
-            VStack(alignment: .leading, spacing: 7) {
-                subhead(L10n.text("settings.shortcuts.in_note"))
-                shortcutRow(L10n.text("action.close"), model.scClose, "close", bare: true) { model.scClose = $0 }
-                shortcutRow(L10n.text("shortcut.archive_note"), model.scArchiveNote, "archiveNote", bare: true) { model.scArchiveNote = $0 }
-                shortcutRow(L10n.text("action.delete"), model.scDelete, "delete", bare: true) { model.scDelete = $0 }
-                shortcutRow(L10n.text("action.find"), model.scFind, "find", bare: true) { model.scFind = $0 }
-                shortcutRow(L10n.text("shortcut.toggle_task"), model.scTask, "task", bare: true) { model.scTask = $0 }
-                shortcutRow(L10n.text("action.pin"), model.scPin, "pin", bare: true) { model.scPin = $0 }
-                shortcutRow(L10n.text("action.cycle_colour"), model.scColour, "colour", bare: true) { model.scColour = $0 }
-                shortcutRow(L10n.text("menu.bigger_text"), model.scBigger, "bigger", bare: true) { model.scBigger = $0 }
-                shortcutRow(L10n.text("menu.smaller_text"), model.scSmaller, "smaller", bare: true) { model.scSmaller = $0 }
-            }
+        Section {
+            shortcutRow(L10n.text("shortcut.new_note"), model.scNewNote, "new") { model.scNewNote = $0 }
+            shortcutRow(L10n.text("shortcut.all_notes"), model.scAllNotes, "all") { model.scAllNotes = $0 }
+            shortcutRow(L10n.text("shortcut.archive_window"), model.scArchive, "archive") { model.scArchive = $0 }
+            shortcutRow(L10n.text("shortcut.quick_capture"), model.scCapture, "capture") { model.scCapture = $0 }
+        } header: {
+            Text(L10n.text("settings.shortcuts.global"))
+        } footer: {
+            Text(L10n.text("settings.shortcuts.caption"))
         }
-        Text(L10n.text("settings.shortcuts.hint"))
-            .font(.system(size: 11)).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 2)
+        Section {
+            shortcutRow(L10n.text("action.close"), model.scClose, "close", bare: true) { model.scClose = $0 }
+            shortcutRow(L10n.text("shortcut.archive_note"), model.scArchiveNote, "archiveNote", bare: true) { model.scArchiveNote = $0 }
+            shortcutRow(L10n.text("action.delete"), model.scDelete, "delete", bare: true) { model.scDelete = $0 }
+            shortcutRow(L10n.text("action.find"), model.scFind, "find", bare: true) { model.scFind = $0 }
+            shortcutRow(L10n.text("shortcut.toggle_task"), model.scTask, "task", bare: true) { model.scTask = $0 }
+            shortcutRow(L10n.text("action.pin"), model.scPin, "pin", bare: true) { model.scPin = $0 }
+            shortcutRow(L10n.text("action.cycle_colour"), model.scColour, "colour", bare: true) { model.scColour = $0 }
+            shortcutRow(L10n.text("menu.bigger_text"), model.scBigger, "bigger", bare: true) { model.scBigger = $0 }
+            shortcutRow(L10n.text("menu.smaller_text"), model.scSmaller, "smaller", bare: true) { model.scSmaller = $0 }
+        } header: {
+            Text(L10n.text("settings.shortcuts.in_note"))
+        } footer: {
+            Text(L10n.text("settings.shortcuts.hint"))
+        }
     }
 
     @ViewBuilder
     private var deckTab: some View {
-        row(L10n.text("settings.deck.language")) {
-            VStack(alignment: .leading, spacing: 4) {
+        Section {
+            LabeledContent {
                 Picker("", selection: $model.appLanguage) {
                     ForEach(AppLanguage.allCases) { language in
                         Text(language.localizedName).tag(language)
                     }
                 }
                 .labelsHidden()
-                .frame(width: 220)
-                Text(L10n.text("settings.deck.language_help"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.text("settings.deck.language"))
+                    Text(L10n.text("settings.deck.language_help"))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
+        } header: {
+            Text(L10n.text("settings.deck.caption"))
         }
-        Divider().padding(.vertical, 2)
-        row(L10n.text("settings.deck.style")) {
-            Picker("", selection: $model.deckStyle) {
-                ForEach(DeckStyle.allCases, id: \.self) { Text($0.title).tag($0) }
-            }.labelsHidden().pickerStyle(.segmented).frame(width: 240)
-        }
-        row(L10n.text("settings.deck.size")) {
-            VStack(alignment: .leading, spacing: 4) {
+        Section {
+            LabeledContent(L10n.text("settings.deck.style")) {
+                Picker("", selection: $model.deckStyle) {
+                    ForEach(DeckStyle.allCases, id: \.self) { Text($0.title).tag($0) }
+                }.labelsHidden().pickerStyle(.segmented)
+            }
+            LabeledContent {
                 HStack(spacing: 10) {
                     Slider(value: $model.deckScale,
                            in: Settings.deckScaleRange.lowerBound...Settings.deckScaleRange.upperBound,
@@ -407,179 +411,183 @@ struct SettingsView: View {
                         .font(.system(size: 11).monospacedDigit())
                         .foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
                 }
-                Text(L10n.text("settings.deck.size_help"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.text("settings.deck.size"))
+                    Text(L10n.text("settings.deck.size_help"))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
-        }
-        if model.screens.count > 1 {
-            row(L10n.text("settings.deck.display")) {
-                Picker("", selection: $model.displayTarget) {
-                    Text(L10n.text("display.all")).tag("all")
-                    Text(L10n.text("display.main")).tag("main")
-                    ForEach(model.screens, id: \.self) { s in
-                        if let id = (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value {
-                            let name = s.localizedName
-                            let title = s == NSScreen.main ? L10n.format("display.named_main", name) : name
-                            Text(title).tag("id:\(id)")
+            if model.screens.count > 1 {
+                LabeledContent(L10n.text("settings.deck.display")) {
+                    Picker("", selection: $model.displayTarget) {
+                        Text(L10n.text("display.all")).tag("all")
+                        Text(L10n.text("display.main")).tag("main")
+                        ForEach(model.screens, id: \.self) { s in
+                            if let id = (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value {
+                                let name = s.localizedName
+                                let title = s == NSScreen.main ? L10n.format("display.named_main", name) : name
+                                Text(title).tag("id:\(id)")
+                            }
                         }
-                    }
-                }.labelsHidden().frame(width: 220)
+                    }.labelsHidden()
+                }
             }
-        }
-        row(L10n.text("settings.deck.edge")) {
-            Picker("", selection: $model.onLeftEdge) {
-                Text(L10n.text("edge.right")).tag(false); Text(L10n.text("edge.left")).tag(true)
-            }.labelsHidden().pickerStyle(.segmented).frame(width: 160)
-        }
-        row(L10n.text("settings.deck.detection_area")) {
-            VStack(alignment: .leading, spacing: 4) {
+            LabeledContent(L10n.text("settings.deck.edge")) {
+                Picker("", selection: $model.onLeftEdge) {
+                    Text(L10n.text("edge.right")).tag(false); Text(L10n.text("edge.left")).tag(true)
+                }.labelsHidden().pickerStyle(.segmented)
+            }
+            LabeledContent {
                 Picker("", selection: $model.edgeWidth) {
                     ForEach(Settings.edgeWidths, id: \.width) { Text(L10n.text($0.nameKey)).tag($0.width) }
-                }.labelsHidden().pickerStyle(.segmented).frame(width: 300)
-                Text(L10n.format("settings.deck.detection_help", Int(model.edgeWidth)))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                }.labelsHidden().pickerStyle(.segmented)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.text("settings.deck.detection_area"))
+                    Text(L10n.format("settings.deck.detection_help", Int(model.edgeWidth)))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
         }
-        VStack(alignment: .leading, spacing: 3) {
-            Toggle(L10n.text("settings.deck.keep_open"), isOn: $model.alwaysShown)
-            Text(L10n.text("settings.deck.keep_open_help"))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        // Only meaningful while the deck is kept open — hidden otherwise
-        // rather than sitting there doing nothing.
-        if model.alwaysShown {
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle(L10n.text("settings.deck.hide_actions"), isOn: $model.hideActions)
-                Text(L10n.text("settings.deck.hide_actions_help"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        Section {
+            toggleRow(L10n.text("settings.deck.keep_open"),
+                      help: L10n.text("settings.deck.keep_open_help"),
+                      isOn: $model.alwaysShown)
+            // Only meaningful while the deck is kept open — hidden otherwise
+            // rather than sitting there doing nothing.
+            if model.alwaysShown {
+                toggleRow(L10n.text("settings.deck.hide_actions"),
+                          help: L10n.text("settings.deck.hide_actions_help"),
+                          isOn: $model.hideActions)
             }
-        }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Toggle(L10n.text("settings.deck.hide_pill"), isOn: $model.pillHidden)
-                        Text(L10n.text("settings.deck.hide_pill_help"))
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-        // Pointless alongside hover-to-open — the note itself opens — so the
-        // row disappears rather than sitting there doing nothing.
-        if !model.openOnHover {
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle(L10n.text("settings.deck.hover_preview"), isOn: $model.tabPreview)
-                Text(L10n.text("settings.deck.hover_preview_help"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            toggleRow(L10n.text("settings.deck.hide_pill"),
+                      help: L10n.text("settings.deck.hide_pill_help"),
+                      isOn: $model.pillHidden)
+            // Pointless alongside hover-to-open — the note itself opens — so the
+            // row disappears rather than sitting there doing nothing.
+            if !model.openOnHover {
+                toggleRow(L10n.text("settings.deck.hover_preview"),
+                          help: L10n.text("settings.deck.hover_preview_help"),
+                          isOn: $model.tabPreview)
             }
+            toggleRow(L10n.text("settings.deck.hover_open"),
+                      help: L10n.text("settings.deck.hover_open_help"),
+                      isOn: $model.openOnHover)
+            toggleRow(L10n.text("menu.show_over_fullscreen"), isOn: $model.overFullScreen)
+            toggleRow(L10n.text("settings.deck.one_space"),
+                      help: L10n.text("settings.deck.one_space_help"),
+                      isOn: $model.confineToSpace)
+            toggleRow(L10n.text("menu.launch_at_login"), isOn: $model.launchAtLogin)
+        } footer: {
+            Text(L10n.text("settings.deck.drag_help"))
         }
-        VStack(alignment: .leading, spacing: 3) {
-            Toggle(L10n.text("settings.deck.hover_open"), isOn: $model.openOnHover)
-            Text(L10n.text("settings.deck.hover_open_help"))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-        }
-        Toggle(L10n.text("menu.show_over_fullscreen"), isOn: $model.overFullScreen)
-        Toggle(L10n.text("menu.launch_at_login"), isOn: $model.launchAtLogin)
-        Text(L10n.text("settings.deck.drag_help"))
-            .font(.system(size: 11)).foregroundStyle(.secondary)
-            .padding(.top, 2)
     }
 
     @ViewBuilder
     private var notesTab: some View {
-        row(L10n.text("settings.notes.font")) {
-            Picker("", selection: $model.fontName) {
-                ForEach(Ink.faces, id: \.body) { Text($0.localizedName).tag($0.body) }
-            }.labelsHidden().frame(width: 200)
-        }
-        row(L10n.text("settings.notes.note_size")) {
-            Picker("", selection: $model.noteSizeIndex) {
-                ForEach(Array(Settings.noteSizes.enumerated()), id: \.offset) { i, s in
-                    Text(L10n.text(s.nameKey)).tag(i)
+        Section {
+            LabeledContent(L10n.text("settings.notes.font")) {
+                Picker("", selection: $model.fontName) {
+                    Section(L10n.text("font.curated")) {
+                        ForEach(Ink.faces, id: \.body) {
+                            Text($0.localizedName).tag($0.body)
+                        }
+                    }
+                    Section(L10n.text("font.system_fonts")) {
+                        ForEach(Ink.allSystemFontFamilies, id: \.family) { family in
+                            Text(family.family)
+                                .tag(family.members.first?.postScript ?? "")
+                        }
+                    }
+                }.labelsHidden()
+            }
+            LabeledContent(L10n.text("settings.notes.note_size")) {
+                Picker("", selection: $model.noteSizeIndex) {
+                    ForEach(Array(Settings.noteSizes.enumerated()), id: \.offset) { i, s in
+                        Text(L10n.text(s.nameKey)).tag(i)
+                    }
+                }
+                .labelsHidden().pickerStyle(.segmented)
+            }
+            LabeledContent(L10n.text("settings.notes.text_size")) {
+                HStack(spacing: 10) {
+                    Slider(value: $model.fontSize,
+                           in: Settings.fontRange.lowerBound...Settings.fontRange.upperBound,
+                           step: 0.5).frame(width: 210)
+                    Text(L10n.format("settings.notes.font_size_value", model.fontSize))
+                        .font(.system(size: 11).monospacedDigit())
+                        .foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
                 }
             }
-            .labelsHidden().pickerStyle(.segmented).frame(width: 300)
+        } header: {
+            Text(L10n.text("settings.notes.caption"))
         }
-        row(L10n.text("settings.notes.text_size")) {
-            HStack(spacing: 10) {
-                Slider(value: $model.fontSize,
-                       in: Settings.fontRange.lowerBound...Settings.fontRange.upperBound,
-                       step: 0.5).frame(width: 210)
-                Text(L10n.format("settings.notes.font_size_value", model.fontSize))
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
-            }
+        Section {
+            toggleRow(L10n.text("settings.notes.markdown"),
+                      help: L10n.text("settings.notes.markdown_help"),
+                      isOn: $model.markdown)
         }
-        VStack(alignment: .leading, spacing: 3) {
-            Toggle(L10n.text("settings.notes.markdown"), isOn: $model.markdown)
-            Text(L10n.text("settings.notes.markdown_help"))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer(minLength: 0)
     }
 
     @ViewBuilder
     private var syncTab: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Toggle(L10n.text("settings.sync.enable"), isOn: $model.cloudSync)
-                .disabled(!CloudFolder.isAvailable)
-            // The one place a person is told that switching this on takes their
-            // notes out of the encrypted database. It does not get to be subtle.
-            Text(L10n.text("settings.sync.enable_help"))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        Section {
+            toggleRow(L10n.text("settings.sync.enable"),
+                      help: L10n.text("settings.sync.enable_help"),
+                      isOn: $model.cloudSync,
+                      disabled: !CloudFolder.isAvailable)
             if !CloudFolder.isAvailable {
                 Text(L10n.text("settings.sync.unavailable_help"))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-        }
-        row(L10n.text("settings.sync.status")) {
-            HStack(spacing: 10) {
-                Text(model.syncStatus)
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                Button(L10n.text("settings.sync.sync_now")) { model.syncNow() }
-                    .disabled(!model.cloudSync || !CloudFolder.isAvailable)
+            LabeledContent(L10n.text("settings.sync.status")) {
+                HStack(spacing: 10) {
+                    Text(model.syncStatus)
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Button(L10n.text("settings.sync.sync_now")) { model.syncNow() }
+                        .disabled(!model.cloudSync || !CloudFolder.isAvailable)
+                }
             }
-        }
-        row(L10n.text("settings.sync.folder")) {
-            HStack(spacing: 10) {
-                Text(CloudFolder.url.path)
-                    .font(.system(size: 11).monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.head)
-                Button(L10n.text("settings.sync.reveal")) { model.revealSyncFolder() }
-                    .disabled(!CloudFolder.isAvailable)
+            LabeledContent(L10n.text("settings.sync.folder")) {
+                HStack(spacing: 10) {
+                    Text(CloudFolder.url.path)
+                        .font(.system(size: 11).monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.head)
+                    Button(L10n.text("settings.sync.reveal")) { model.revealSyncFolder() }
+                        .disabled(!CloudFolder.isAvailable)
+                }
             }
+        } header: {
+            Text(L10n.text("settings.sync.caption"))
         }
-        Spacer(minLength: 0)
     }
 
     @ViewBuilder
     private var updatesTab: some View {
-        row(L10n.text("settings.updates.this_copy")) {
-            Text(Self.versionString)
-                .font(.system(size: 12.5).monospacedDigit())
-        }
-        VStack(alignment: .leading, spacing: 3) {
-            Toggle(L10n.text("settings.updates.automatic"), isOn: $model.autoUpdate)
-                .disabled(!Updater.available)
-            Text(model.updateStatus)
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        HStack(spacing: 10) {
-            Button(L10n.text("settings.updates.check_now")) { model.checkForUpdatesNow() }
-                .disabled(!Updater.available)
-            if !Updater.available {
-                Text(L10n.text("updates.install_sparkle"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+        Section {
+            LabeledContent(L10n.text("settings.updates.this_copy")) {
+                Text(Self.versionString)
+                    .font(.system(size: 12.5).monospacedDigit())
             }
+            toggleRow(L10n.text("settings.updates.automatic"),
+                      help: model.updateStatus,
+                      isOn: $model.autoUpdate,
+                      disabled: !Updater.available)
+            HStack(spacing: 10) {
+                Button(L10n.text("settings.updates.check_now")) { model.checkForUpdatesNow() }
+                    .disabled(!Updater.available)
+                if !Updater.available {
+                    Text(L10n.text("updates.install_sparkle"))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text(L10n.text("settings.updates.caption"))
+        } footer: {
+            Text(L10n.text("settings.updates.privacy"))
         }
-        Divider().padding(.vertical, 4)
-        Text(L10n.text("settings.updates.privacy"))
-            .font(.system(size: 11)).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        Spacer(minLength: 0)
     }
 
     private static var versionString: String {
@@ -591,54 +599,53 @@ struct SettingsView: View {
 
     // MARK: pieces
 
-    /// One tab. The heading is gone — the tab itself is the heading now — but the
-    /// caption earns its line, so it stays.
-    private func pane(_ caption: String,
-                      @ViewBuilder _ content: () -> some View) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 13) {
-                Text(caption).font(.system(size: 11.5)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                VStack(alignment: .leading, spacing: 11) { content() }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 18)
+    /// One tab, laid out by the system: grouped form cells align every label
+    /// column and control edge themselves.
+    private func pane(@ViewBuilder _ content: () -> some View) -> some View {
+        Form {
+            content()
         }
+        .formStyle(.grouped)
         .onAppear {
             model.refreshUpdateStatus()
             model.refreshSyncStatus()
         }
     }
 
-    private func subhead(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-    }
-
-    private func row(_ label: String, @ViewBuilder _ content: () -> some View) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(label).font(.system(size: 12.5))
-                .frame(width: 104, alignment: .leading)
-            content()
-            Spacer(minLength: 0)
+    /// The standard settings cell: title and its explanation on the left, the
+    /// switch on the right.
+    private func toggleRow(_ title: String, help: String? = nil,
+                           isOn: Binding<Bool>, disabled: Bool = false) -> some View {
+        LabeledContent {
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(disabled)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let help {
+                    Text(help)
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 
     private func shortcutRow(_ label: String, _ value: Shortcut, _ key: String,
                              bare: Bool = false,
                              _ set: @escaping (Shortcut) -> Void) -> some View {
-        HStack(spacing: 10) {
-            Text(label).font(.system(size: 12)).frame(width: 96, alignment: .leading)
-            ShortcutField(shortcut: value, allowsBareKeys: bare, onChange: set)
-                .frame(width: 96, height: 24)
-            if model.duplicate(of: value, ignoring: key) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10)).foregroundStyle(.orange)
-                    .help(L10n.text("shortcut.duplicate"))
+        LabeledContent(label) {
+            HStack(spacing: 6) {
+                ShortcutField(shortcut: value, allowsBareKeys: bare, onChange: set)
+                    .frame(width: 96, height: 24)
+                if model.duplicate(of: value, ignoring: key) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10)).foregroundStyle(.orange)
+                        .help(L10n.text("shortcut.duplicate"))
+                }
             }
-            Spacer(minLength: 0)
         }
     }
 }

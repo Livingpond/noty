@@ -290,6 +290,14 @@ enum Settings {
     static let fanIdleTimeout: TimeInterval = 4
     static let noteIdleTimeout: TimeInterval = 60
 
+    /// Stop Noty's windows from following the user to every Space: the deck
+    /// and any floating notes stay on the Space they are on, like paper
+    /// stickies on one desk. Off by default — the deck follows everywhere.
+    static var confineToSpace: Bool {
+        get { d.bool(forKey: "confineToSpace") }
+        set { d.set(newValue, forKey: "confineToSpace") }
+    }
+
     /// Keep the deck fanned out instead of letting it fall back to the pill.
     /// Only the *resting* state changes — notes still open and tidy away as usual.
     static var deckAlwaysShown: Bool {

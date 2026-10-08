@@ -57,6 +57,8 @@
 "export.sticky_archive" = "便笺归档（.stickies）…";
 
 "font.system" = "系统字体";
+"font.curated" = "精选字体";
+"font.system_fonts" = "所有系统字体";
 
 "help.cycle_colour" = "切换颜色  ⌘.";
 "help.find" = "查找  ⌘F";
@@ -149,6 +151,8 @@
 "settings.deck.keep_open_help" = "指针移开后，标签及其文字仍显示在边缘，不会折叠成胶囊。";
 "settings.deck.hide_actions" = "隐藏新建便笺和设置按钮";
 "settings.deck.hide_actions_help" = "展开的便笺栏中不再显示 + 和齿轮按钮。菜单栏图标和快捷键仍可新建便笺、打开设置。";
+"settings.deck.one_space" = "只留在一个空间";
+"settings.deck.one_space_help" = "便笺和便笺栏不再跟随你切换到每个空间，而是像贴在一张桌子上的便利贴一样留在原地。";
 "settings.deck.language" = "语言";
 "settings.deck.language_help" = "更改语言后，Noty 会自动重新启动。";
 "settings.deck.size" = "大小";

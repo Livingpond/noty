@@ -57,6 +57,8 @@
 "export.sticky_archive" = "Sticky archive (.stickies)…";
 
 "font.system" = "System";
+"font.curated" = "Curated";
+"font.system_fonts" = "System Fonts";
 
 "help.cycle_colour" = "Cycle colour  ⌘.";
 "help.find" = "Find  ⌘F";
@@ -149,6 +151,8 @@
 "settings.deck.keep_open_help" = "Tabs stay on the edge with their labels showing, instead of folding back into the pill when the pointer leaves.";
 "settings.deck.hide_actions" = "Hide the new-note and settings buttons";
 "settings.deck.hide_actions_help" = "The + and gear buttons leave the open deck. The menu bar icon and shortcuts still create notes and open Settings.";
+"settings.deck.one_space" = "Stay on one Space";
+"settings.deck.one_space_help" = "Notes and the deck stop following you to every Space — they stay where they are, like stickies on one desk.";
 "settings.deck.language" = "Language";
 "settings.deck.language_help" = "Noty restarts automatically when you change the language.";
 "settings.deck.size" = "Size";

@@ -95,7 +95,7 @@ enum DeckGeom {
     static let leanDegrees: Double = 3.0
     static func lean(onRight: Bool) -> Double { onRight ? -leanDegrees : leanDegrees }
 
-    /// Rendered width of a tab label, used to size the strip that shows it.
+    /// Rendered width of a horizontal tab label, used for rotated runs.
     /// Must use the same face the tab draws with or the strip will not fit.
     ///
     /// Measured once per title per face: the deck asks for this on every layout
@@ -114,6 +114,19 @@ enum DeckGeom {
         labelCache[key] = w
         return w
     }
+
+    /// The vertical advance of one upright glyph in a tab label.
+    static var tabGlyphAdvance: CGFloat {
+        let font = Ink.tabNSFont
+        return max(1, ceil(font.ascender - font.descender + font.leading))
+    }
+
+    /// Rendered height of a title when upright scripts use vertical writing.
+    /// Latin runs still rotate as a run, so a mixed title retains readable words
+    /// without forcing its CJK characters to lie on their sides.
+    static func verticalLabelHeight(_ title: String) -> CGFloat {
+        VerticalLabelLayout.runs(for: title.uppercased()).reduce(0) { $0 + $1.advance }
+    }
     static var chipWidth: CGFloat { s(30) }
     static var chipHeight: CGFloat { s(24) }
     static var chipGap: CGFloat { s(6) }
@@ -121,7 +134,7 @@ enum DeckGeom {
     static var plusSize: CGFloat { s(28) }
     static var plusGap: CGFloat { s(12) }
     // The cog sits under the plus, so it has to grow with it.
-    static var cogSize: CGFloat { s(24) }
+    static var cogSize: CGFloat { plusSize }
     static var cogGap: CGFloat { s(8) }
 
     static var moreTabHeight: CGFloat { s(34) }
@@ -179,6 +192,125 @@ enum DeckGeom {
     }
 }
 
+// MARK: - Vertical tab labels
+
+enum VerticalLabelOrientation: Equatable {
+    case upright
+    case rotated
+}
+
+struct VerticalLabelRun: Equatable {
+    let text: String
+    let orientation: VerticalLabelOrientation
+
+    var advance: CGFloat {
+        switch orientation {
+        case .upright:
+            DeckGeom.tabGlyphAdvance
+        case .rotated:
+            DeckGeom.labelWidth(text)
+        }
+    }
+}
+
+/// A small Unicode-aware layout model shared by the deck's measurement and
+/// rendering. CJK, kana, hangul, full-width punctuation and emoji have an
+/// upright presentation in vertical writing; scripts whose glyphs are normally
+/// rotated stay grouped so words and numbers remain legible.
+enum VerticalLabelLayout {
+    static func runs(for title: String) -> [VerticalLabelRun] {
+        var result: [VerticalLabelRun] = []
+        var rotated = ""
+
+        func flushRotated() {
+            guard !rotated.isEmpty else { return }
+            result.append(VerticalLabelRun(text: rotated, orientation: .rotated))
+            rotated.removeAll(keepingCapacity: true)
+        }
+
+        let characters = Array(title)
+        for (index, character) in characters.enumerated() {
+            let upright = isUpright(character)
+                && (!isSpace(character) || spaceIsBetweenUprightGlyphs(
+                    in: characters, at: index))
+            if upright {
+                flushRotated()
+                // Keep each ideograph in its own line box. Grouping them into a
+                // single Text would make SwiftUI lay them out horizontally.
+                result.append(VerticalLabelRun(text: String(character), orientation: .upright))
+            } else {
+                rotated.append(character)
+            }
+        }
+        flushRotated()
+        return result
+    }
+
+    private static func spaceIsBetweenUprightGlyphs(in characters: [Character],
+                                                    at index: Int) -> Bool {
+        let previous = index > 0 ? characters[index - 1] : nil
+        let next = index + 1 < characters.count ? characters[index + 1] : nil
+        let previousIsUpright = previous.map(isUpright) ?? true
+        let nextIsUpright = next.map(isUpright) ?? true
+        return previousIsUpright && nextIsUpright
+    }
+
+    private static func isSpace(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { scalar in
+            scalar.value == 0x20 || scalar.value == 0x3000 || scalar.value == 0x00A0
+        }
+    }
+
+    /// Truncate the logical title from its end, adding an upright ellipsis when
+    /// the display strip is squeezed by a short screen or a long title.
+    static func fittingRuns(for title: String, maxAdvance: CGFloat) -> [VerticalLabelRun] {
+        let text = title.uppercased()
+        let all = runs(for: text)
+        let total = all.reduce(0) { $0 + $1.advance }
+        guard total > maxAdvance else { return all }
+
+        let ellipsis = VerticalLabelRun(text: "…", orientation: .upright)
+        var prefix = ""
+        for character in text {
+            let candidate = prefix + String(character)
+            let candidateHeight = runs(for: candidate).reduce(0) { $0 + $1.advance }
+            guard candidateHeight + ellipsis.advance <= maxAdvance else { break }
+            prefix = candidate
+        }
+
+        return runs(for: prefix) + [ellipsis]
+    }
+
+    static func isUpright(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            let value = scalar.value
+            switch value {
+            case 0x2E80...0x2FFF, // CJK radicals, symbols and punctuation
+                 0x3000...0x30FF, // CJK punctuation, hiragana and katakana
+                 0x3100...0x31FF, // bopomofo and kana extensions
+                 0x3400...0x4DBF, // CJK extension A
+                 0x4E00...0x9FFF, // CJK unified ideographs
+                 0xA960...0xA97F, // hangul jamo extended A
+                 0xAC00...0xD7FF, // hangul syllables and extended B
+                 0xF900...0xFAFF, // CJK compatibility ideographs
+                 0xFE10...0xFE6F, // vertical/CJK compatibility forms
+                 0xFF00...0xFFEF, // full-width forms
+                 0x1F000...0x1FAFF, // emoji and pictographs
+                 0x20000...0x2FA1F: // CJK extensions B through I
+                return true
+            case 0x20, 0x3000, 0x00A0:
+                // A space is a vertical blank between upright glyphs. Keeping
+                // it eligible for upright layout lets CJK-only titles keep their
+                // spacing, while runs(for:) attaches mixed-script spaces to the
+                // neighbouring rotated text.
+                return true
+            default:
+                return false
+            }
+        }
+    }
+}
+
 // MARK: - Panel
 
 /// Borderless, non-activating floating panel. `canBecomeKey` must be overridden or
@@ -208,7 +340,8 @@ final class DeckPanel: NSPanel {
         // .fullScreenAuxiliary is what lets the panel join a full-screen space
         // at all — granting it unconditionally showed the deck over full-screen
         // apps with the setting off, just at a lower level (issue #27).
-        var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        var behavior: NSWindow.CollectionBehavior = [.stationary, .ignoresCycle]
+        if !Settings.confineToSpace { behavior.insert(.canJoinAllSpaces) }
         if Settings.showOverFullScreen { behavior.insert(.fullScreenAuxiliary) }
         collectionBehavior = behavior
     }

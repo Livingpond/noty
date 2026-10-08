@@ -27,7 +27,9 @@ final class UndoToast {
         p.backgroundColor = .clear
         p.hasShadow = false
         p.level = .statusBar
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        p.collectionBehavior = Settings.confineToSpace
+            ? [.fullScreenAuxiliary, .stationary, .ignoresCycle]
+            : [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         p.isReleasedWhenClosed = false
         p.contentView = NSHostingView(rootView: UndoToastView(pending: pending))
 
