@@ -284,6 +284,165 @@ final class SettingsModel: ObservableObject {
     }
 }
 
+// MARK: - TickTick settings model
+
+/// The 滴答清单 settings page: connect with a pasted personal API token —
+/// verified against the account before it is kept, stored in the Keychain
+/// and nowhere else (proposal §7.2) — pick the lists a task note aggregates,
+/// and create the note. Network happens here; scheduling never does (that
+/// is the engine's, next phase).
+final class TickTickSettingsModel: ObservableObject {
+    enum ConnectionState: Equatable {
+        case notConnected
+        case connecting
+        case connected
+    }
+
+    @Published var tokenInput = ""
+    @Published private(set) var connection: ConnectionState = .notConnected
+    /// Lists from GET /project, in the account's order. The inbox never
+    /// appears in that response (contract report §1.1) and is offered as a
+    /// fixed row instead.
+    @Published private(set) var projects: [TickTickProject] = []
+    @Published var selectedProjectIds: Set<String> = ["inbox"]
+    /// One line of feedback under the page's actions (proposal §7.3).
+    @Published var statusText = ""
+
+    private let keychain: TickTickKeychain
+    private let portal: TickTickPortal
+    private let noteStore: NoteStore
+
+    init(keychain: TickTickKeychain = .standard,
+         portal: TickTickPortal = .shared,
+         noteStore: NoteStore = .shared) {
+        self.keychain = keychain
+        self.portal = portal
+        self.noteStore = noteStore
+        // A saved token means a connection was made before: verify it by
+        // fetching the list inventory, which the page needs anyway.
+        if let stored = (try? keychain.load()) ?? nil, !stored.isEmpty {
+            connection = .connecting
+            fetchLists(token: stored)
+        }
+    }
+
+    var connectionLabel: String {
+        switch connection {
+        case .notConnected: return L10n.text("ticktick.settings.not_connected")
+        case .connecting:   return L10n.text("ticktick.settings.connecting")
+        case .connected:    return L10n.text("ticktick.settings.connected")
+        }
+    }
+
+    /// The selection in binding order (proposal §5.4): the inbox first,
+    /// then the account's list order.
+    var orderedSelection: [String] {
+        TickTickSettingsValidation.selectionOrder(selected: selectedProjectIds, fetchedOrder: projects)
+    }
+
+    func connect() {
+        let token = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard TickTickSettingsValidation.isValidToken(token) else {
+            statusText = L10n.text("ticktick.settings.token_empty")
+            return
+        }
+        connection = .connecting
+        statusText = L10n.text("ticktick.settings.connecting")
+        // The token is only kept after the account accepts it — nothing
+        // unverified ever reaches the Keychain.
+        fetchLists(token: token, savingTokenOnSuccess: true)
+    }
+
+    func disconnect() {
+        try? keychain.delete()
+        connection = .notConnected
+        projects = []
+        selectedProjectIds = ["inbox"]
+        portal.setPhase(.idle)
+        portal.setProjectNames([:])
+        // The engine stops scheduling, bumps its generation and voids any
+        // in-flight response from the old credentials (proposal §7.2).
+        portal.engineCredentialsDidChange()
+        statusText = L10n.text("ticktick.settings.not_connected")
+    }
+
+    func refreshLists() {
+        guard let stored = (try? keychain.load()) ?? nil, !stored.isEmpty else {
+            connection = .notConnected
+            statusText = L10n.text("ticktick.settings.not_connected")
+            return
+        }
+        connection = .connecting
+        fetchLists(token: stored)
+    }
+
+    func createTaskNote() {
+        switch TickTickTaskCreation.createTaskNote(projectIds: orderedSelection, noteStore: noteStore) {
+        case .success:
+            statusText = L10n.text("ticktick.settings.created")
+        case .failure(let failure):
+            statusText = L10n.format("ticktick.settings.creation_failed", failure.localizedDescription)
+        }
+    }
+
+    /// The one network call this page makes: GET /project with the given
+    /// token. The await resumes off the main thread; the actor hop brings
+    /// the UI-state writes back to it.
+    private func fetchLists(token: String, savingTokenOnSuccess: Bool = false) {
+        let keychain = keychain
+        let portal = portal
+        Task { @MainActor in
+            do {
+                let lists = try await TickTickClient(token: token).listProjects()
+                if savingTokenOnSuccess { try keychain.save(token) }
+                portal.setProjectNames(Dictionary(uniqueKeysWithValues: lists.map { ($0.id, $0.name) }))
+                applyFetched(lists: lists)
+                connection = .connected
+                if savingTokenOnSuccess {
+                    tokenInput = ""
+                    // Fresh credentials: the engine re-reads the keychain,
+                    // bumps its generation and resumes with one merged read
+                    // (proposal §7.2).
+                    portal.engineCredentialsDidChange()
+                }
+                // Any successful read is the last known good state a task
+                // note's title bar can show (proposal §7.3). The engine owns
+                // phase transitions from here on.
+                portal.setPhase(.updated(Date()))
+                statusText = L10n.text("ticktick.settings.connected")
+            } catch {
+                connection = .notConnected
+                if let tickTickError = error as? TickTickError, tickTickError == .unauthorized {
+                    portal.setPhase(.unauthorized)
+                }
+                statusText = Self.failureText(error)
+            }
+        }
+    }
+
+    /// Remembers a fetched inventory and prunes selections the account no
+    /// longer has — an empty selection falls back to the inbox.
+    private func applyFetched(lists: [TickTickProject]) {
+        projects = lists
+        let available = Set(["inbox"]).union(lists.map(\.id))
+        selectedProjectIds = selectedProjectIds.intersection(available)
+        if selectedProjectIds.isEmpty { selectedProjectIds = ["inbox"] }
+    }
+
+    /// §7.3 vocabulary for the failures a user can act on; anything else
+    /// keeps its system description.
+    static func failureText(_ error: Error) -> String {
+        if let tickTickError = error as? TickTickError {
+            switch tickTickError {
+            case .unauthorized: return L10n.text("ticktick.status.unauthorized")
+            case .forbidden: return L10n.text("ticktick.status.forbidden")
+            default: break
+            }
+        }
+        return error.localizedDescription
+    }
+}
+
 // MARK: - Window
 
 final class SettingsWindow: NSObject, NSWindowDelegate {
@@ -325,6 +484,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @StateObject private var tickTick = TickTickSettingsModel()
 
     var body: some View {
         // One long scroll made twelve shortcut fields, nine deck controls and the
@@ -337,6 +497,8 @@ struct SettingsView: View {
                 .tabItem { Label(L10n.text("settings.deck.tab"), systemImage: "menucard") }
             pane { notesTab }
                 .tabItem { Label(L10n.text("settings.notes.tab"), systemImage: "textformat") }
+            pane { tickTickTab }
+                .tabItem { Label(L10n.text("ticktick.settings.tab"), systemImage: "checkmark.circle") }
             pane { syncTab }
                 .tabItem { Label(L10n.text("settings.sync.tab"), systemImage: "icloud") }
             pane { updatesTab }
@@ -528,6 +690,82 @@ struct SettingsView: View {
                       help: L10n.text("settings.notes.markdown_help"),
                       isOn: $model.markdown)
         }
+    }
+
+    @ViewBuilder
+    private var tickTickTab: some View {
+        Section {
+            LabeledContent(L10n.text("ticktick.settings.status")) {
+                HStack(spacing: 10) {
+                    Text(tickTick.connectionLabel)
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    if tickTick.connection == .connected {
+                        Button(L10n.text("ticktick.settings.disconnect")) { tickTick.disconnect() }
+                            .controlSize(.small)
+                    }
+                }
+            }
+            LabeledContent {
+                HStack(spacing: 8) {
+                    SecureField("", text: $tickTick.tokenInput)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                    Button(L10n.text("ticktick.settings.connect")) { tickTick.connect() }
+                        .disabled(tickTick.connection == .connecting)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.text("ticktick.settings.token_field"))
+                    Text(L10n.text("ticktick.settings.token_help"))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } header: {
+            Text(L10n.text("ticktick.settings.caption"))
+        } footer: {
+            Text(L10n.text("ticktick.settings.privacy"))
+        }
+        Section {
+            if tickTick.connection == .connected {
+                LabeledContent(L10n.text("ticktick.settings.projects")) {
+                    Button(L10n.text("ticktick.settings.refresh_lists")) { tickTick.refreshLists() }
+                        .controlSize(.small)
+                }
+                projectRow(L10n.text("ticktick.inbox"), id: "inbox")
+                ForEach(tickTick.projects, id: \.id) { project in
+                    projectRow(project.name, id: project.id)
+                }
+            } else {
+                Text(L10n.text("ticktick.settings.connect_first"))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text(L10n.text("ticktick.settings.projects"))
+        } footer: {
+            Text(L10n.text("ticktick.settings.projects_help"))
+        }
+        Section {
+            HStack(spacing: 10) {
+                Button(L10n.text("ticktick.settings.create_note")) { tickTick.createTaskNote() }
+                    .disabled(!TickTickSettingsValidation.isValidSelection(tickTick.orderedSelection))
+                Text(tickTick.statusText.isEmpty ? tickTick.connectionLabel : tickTick.statusText)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } footer: {
+            Text(L10n.text("ticktick.settings.create_note_help"))
+        }
+    }
+
+    /// One list-selection row: the fixed inbox alias or a fetched list.
+    private func projectRow(_ name: String, id: String) -> some View {
+        toggleRow(name, isOn: Binding(
+            get: { tickTick.selectedProjectIds.contains(id) },
+            set: { on in
+                if on { tickTick.selectedProjectIds.insert(id) }
+                else { tickTick.selectedProjectIds.remove(id) }
+            }))
     }
 
     @ViewBuilder

@@ -336,12 +336,20 @@ struct LibraryDetail: View {
             .padding(.bottom, 10)
             .background(pal.dash.opacity(0.12))
 
-            NoteTextView(text: textBinding, ink: NSColor(pal.ink), bridge: bridge,
-                         autofocus: false, fontSize: Settings.noteFontSize,
-                         markdownEnabled: Settings.markdownStyling,
-                         textDirection: note.textDirection,
-                         styleToken: "\(note.color)|\(Settings.noteFontSize)|\(Settings.noteFontName)|\(Settings.markdownStyling)")
-                .background(pal.paper)
+            // A task note opens on the task list, never the text editor
+            // (proposal §2.2): the preview adapts to rows, and the body
+            // stays a read-only remote snapshot.
+            if TickTickDisplayRouting.surface(for: note) == .taskList {
+                TickTickTaskListView(noteID: note.id)
+                    .background(pal.paper)
+            } else {
+                NoteTextView(text: textBinding, ink: NSColor(pal.ink), bridge: bridge,
+                             autofocus: false, fontSize: Settings.noteFontSize,
+                             markdownEnabled: Settings.markdownStyling,
+                             textDirection: note.textDirection,
+                             styleToken: "\(note.color)|\(Settings.noteFontSize)|\(Settings.noteFontName)|\(Settings.markdownStyling)")
+                    .background(pal.paper)
+            }
         }
         .onDisappear { store.flush(id: note.id) }
     }

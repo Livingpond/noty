@@ -62,8 +62,12 @@ final class QuickCapture: NSObject, NSWindowDelegate {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             // Append to the chosen note — or a fresh one when none was picked,
-            // or the picked one was deleted while the box sat open.
-            if let targetID, let note = NoteStore.shared.note(id: targetID) {
+            // the picked one was deleted while the box sat open, or the picked
+            // one is a task note: those bodies are remote snapshots, never
+            // append targets (proposal §2.2), and NoteStore.updateBody refuses
+            // them as a second line of defence.
+            if let targetID, let note = NoteStore.shared.note(id: targetID),
+               TickTickDisplayRouting.isCaptureTarget(note) {
                 let body = note.body.isEmpty ? trimmed : note.body + "\n" + trimmed
                 NoteStore.shared.updateBody(id: targetID, body: body)
             } else {
@@ -108,7 +112,11 @@ private struct CaptureView: View {
     @State private var targetID: String?
     @FocusState private var focused: Bool
 
-    private var targets: [Note] { Array(NoteStore.shared.active.prefix(8)) }
+    /// Task notes never appear here: their bodies are remote snapshots, not
+    /// places to append (proposal §2.2).
+    private var targets: [Note] {
+        Array(NoteStore.shared.active.filter(TickTickDisplayRouting.isCaptureTarget).prefix(8))
+    }
 
     /// The paper previews the destination: the chosen note's colour, or the
     /// colour a new note would get.

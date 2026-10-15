@@ -527,10 +527,23 @@ final class DeckController: NSObject {
                 NoteStore.shared.delete(id: id); self.collapse(); return nil
             }
             if Settings.scFind.matches(event) {
-                self.model.findQuery = self.model.findQuery == nil ? "" : nil; return nil
+                // Find searches the text editor, which a task note never
+                // shows (proposal §2.2) — the shortcut is consumed and inert.
+                if let note = NoteStore.shared.note(id: id),
+                   TickTickDisplayRouting.surface(for: note) == .textEditor {
+                    self.model.findQuery = self.model.findQuery == nil ? "" : nil
+                }
+                return nil
             }
             if Settings.scTask.matches(event) {
-                self.model.bridge.toggleTaskLine(); return nil
+                // The task-marker shortcut rewrites body text; on a task note
+                // it is consumed and ignored (proposal §2.2) — the completion
+                // path is the task row's own control, addressed by taskId.
+                if let note = NoteStore.shared.note(id: id),
+                   TickTickDisplayRouting.allowsTaskLineToggle(note) {
+                    self.model.bridge.toggleTaskLine()
+                }
+                return nil
             }
             if Settings.scPin.matches(event) {
                 NoteStore.shared.togglePin(id: id); return nil

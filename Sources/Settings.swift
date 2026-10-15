@@ -286,6 +286,13 @@ enum Settings {
     /// modification date moved, so this is a directory listing, not a re-read.
     static let cloudSyncInterval: TimeInterval = 5
 
+    /// Whether task notes keep their "recently completed" section hidden
+    /// (proposal §5.2: hideable on top of collapsible).
+    static var ticktickRecentCompletionsHidden: Bool {
+        get { d.object(forKey: "ticktickRecentCompletionsHidden") as? Bool ?? false }
+        set { d.set(newValue, forKey: "ticktickRecentCompletionsHidden") }
+    }
+
     /// How long the deck may sit untouched before it tidies itself away.
     static let fanIdleTimeout: TimeInterval = 4
     static let noteIdleTimeout: TimeInterval = 60

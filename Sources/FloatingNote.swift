@@ -193,8 +193,9 @@ private final class FloatingPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// The note's paper, free of the deck. Same editor, same autosave; the header
-/// doubles as the drag handle.
+/// The note's paper, free of the deck. Plain notes get the same editor with
+/// the same autosave; task notes get the task list (proposal §2.2). The
+/// header doubles as the drag handle.
 private struct FloatingNoteView: View {
     let noteID: String
     let onActivity: () -> Void
@@ -216,12 +217,19 @@ private struct FloatingNoteView: View {
             let pal = note.palette
             VStack(spacing: 0) {
                 header(note, pal)
-                NoteTextView(text: textBinding, ink: NSColor(pal.ink),
-                             bridge: bridge, autofocus: false,
-                             fontSize: Settings.noteFontSize,
-                             markdownEnabled: Settings.markdownStyling,
-                             textDirection: note.textDirection,
-                             styleToken: "\(note.color)|\(Settings.noteFontSize)|\(Settings.noteFontName)|\(Settings.markdownStyling)")
+                // A task note opens on the task list, never the text editor
+                // (proposal §2.2): its body is a remote snapshot, and rows
+                // are real controls addressed by taskId.
+                if TickTickDisplayRouting.surface(for: note) == .taskList {
+                    TickTickTaskListView(noteID: note.id)
+                } else {
+                    NoteTextView(text: textBinding, ink: NSColor(pal.ink),
+                                 bridge: bridge, autofocus: false,
+                                 fontSize: Settings.noteFontSize,
+                                 markdownEnabled: Settings.markdownStyling,
+                                 textDirection: note.textDirection,
+                                 styleToken: "\(note.color)|\(Settings.noteFontSize)|\(Settings.noteFontName)|\(Settings.markdownStyling)")
+                }
             }
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)

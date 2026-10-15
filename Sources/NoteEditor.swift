@@ -1101,13 +1101,20 @@ struct NoteEditorView: View {
     private var sheet: some View {
         VStack(spacing: 0) {
             header
-            if deck.findQuery != nil { findBar }
-            NoteTextView(text: textBinding, ink: NSColor(pal.ink),
-                         bridge: deck.bridge, autofocus: true,
-                         fontSize: deck.fontSize,
-                         markdownEnabled: deck.markdown,
-                         textDirection: note.textDirection,
-                         styleToken: "\(note.color)|\(deck.fontSize)|\(Settings.noteFontName)|\(deck.markdown)")
+            // A task note opens on the task list, never the text editor
+            // (proposal §2.2): its body is a remote snapshot, and rows are
+            // real controls addressed by taskId.
+            if TickTickDisplayRouting.surface(for: note) == .taskList {
+                TickTickTaskListView(noteID: note.id, fontSize: deck.fontSize)
+            } else {
+                if deck.findQuery != nil { findBar }
+                NoteTextView(text: textBinding, ink: NSColor(pal.ink),
+                             bridge: deck.bridge, autofocus: true,
+                             fontSize: deck.fontSize,
+                             markdownEnabled: deck.markdown,
+                             textDirection: note.textDirection,
+                             styleToken: "\(note.color)|\(deck.fontSize)|\(Settings.noteFontName)|\(deck.markdown)")
+            }
             footer
         }
     }
@@ -1216,24 +1223,31 @@ struct NoteEditorView: View {
                 NoteStore.shared.setTextDirection(id: note.id, direction: $0)
             }
 
-            Button { deck.bridge.toggleTaskLine() } label: {
-                Image(systemName: "checklist")
-                    .font(Ink.bodyFont(11).weight(.semibold))
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
+            // The task-marker and find buttons drive the text editor, which a
+            // task note never shows (proposal §2.2) — they disappear rather
+            // than sit there doing nothing.
+            if TickTickDisplayRouting.allowsTaskLineToggle(note) {
+                Button { deck.bridge.toggleTaskLine() } label: {
+                    Image(systemName: "checklist")
+                        .font(Ink.bodyFont(11).weight(.semibold))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(pal.ink.opacity(0.5))
+                .help(L10n.text("help.task"))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(pal.ink.opacity(0.5))
-            .help(L10n.text("help.task"))
-            Button { deck.findQuery = deck.findQuery == nil ? "" : nil } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(Ink.bodyFont(10.5).weight(.semibold))
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
+            if TickTickDisplayRouting.surface(for: note) == .textEditor {
+                Button { deck.findQuery = deck.findQuery == nil ? "" : nil } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(Ink.bodyFont(10.5).weight(.semibold))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(pal.ink.opacity(0.5))
+                .help(L10n.text("help.find"))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(pal.ink.opacity(0.5))
-            .help(L10n.text("help.find"))
         }
         .padding(.horizontal, 14)
         .frame(height: 32)
