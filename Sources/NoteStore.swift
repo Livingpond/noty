@@ -123,11 +123,61 @@ final class NoteStore: ObservableObject {
     }
 
     func updateBody(id: String, body: String) {
-        guard writable, let i = notes.firstIndex(where: { $0.id == id }) else { return }
+        // Task notes are read-only snapshots of remote tasks: free-text edits
+        // (editors, quick capture, task-marker toggles) are the bypass the
+        // sync design forbids (proposal §2.2). Only updateSnapshotBody may
+        // write their bodies.
+        guard writable, let i = notes.firstIndex(where: { $0.id == id }),
+              notes[i].source == .local else { return }
         guard notes[i].body != body else { return }
         notes[i].body = body
         notes[i].modified = Date()
         scheduleSave(id: id)
+    }
+
+    /// Replaces the derived text snapshot of an existing task note (proposal
+    /// §4.3). The sanctioned body writer for `source == .ticktick` notes: the
+    /// note must still exist and still be a task note (a deleted note is never
+    /// resurrected), only the body and its modification time change — title,
+    /// colour, order, pin, archive and text direction stay whatever they are
+    /// right now — and an identical body does not rewrite the row. Returns
+    /// false when the note is missing or not a task note, or the row could not
+    /// be saved.
+    @discardableResult
+    func updateSnapshotBody(id: String, body: String) -> Bool {
+        guard writable, let i = notes.firstIndex(where: { $0.id == id }),
+              notes[i].source == .ticktick else { return false }
+        guard notes[i].body != body else { return true }
+        notes[i].body = body
+        notes[i].modified = Date()
+        return persist(notes[i])
+    }
+
+    // MARK: Task-note creation (proposal §8.3)
+
+    /// Durably writes a note's row without publishing it into `notes` — the
+    /// first step of task-note creation. The row carries `source` already,
+    /// so anything that ever reads the database sees a protected task note,
+    /// never a task snapshot passing for a plain one. Returns false when the
+    /// row could not be saved; nothing visible changes either way.
+    @discardableResult
+    func persistUnpublished(_ note: Note) -> Bool {
+        guard writable else { return false }
+        do {
+            try store.upsert(note)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Publishes a note whose row was already saved — the last step of
+    /// task-note creation (proposal §8.3). The row is not rewritten; the
+    /// note simply joins the shared collection. Idempotent.
+    func publishPersisted(_ note: Note) {
+        guard writable, !notes.contains(where: { $0.id == note.id }) else { return }
+        notes.append(note)
     }
 
     func togglePin(id: String) {
@@ -192,9 +242,13 @@ final class NoteStore: ObservableObject {
     func undoDelete() {
         guard writable, let p = pendingUndo else { return }
         undoTimer?.invalidate()
+        pendingUndo = nil
+        // The note may have come back on its own while the window was open —
+        // an iCloud pull of the same id, or an import that kept it. Ids stay
+        // unique in `notes`, so the undo appends only when the id is free.
+        guard !notes.contains(where: { $0.id == p.note.id }) else { return }
         notes.append(p.note)
         persist(p.note)
-        pendingUndo = nil
     }
 
     private func expireUndo() {
@@ -264,7 +318,15 @@ final class NoteStore: ObservableObject {
         var added = 0
         var base = (notes.map(\.order).min() ?? 0) - Double(incoming.count)
         for var n in incoming.sorted(by: { $0.order < $1.order }) {
-            if notes.contains(where: { $0.id == n.id }) { n.id = UUID().uuidString }
+            // Imports are always new plain notes (proposal §4.3/§8.6): the
+            // source is stripped so no archive can claim task-note identity,
+            // and an id taken by a live note — or by one sitting in its undo
+            // window, which `notes` does not include — is replaced, so the
+            // undo append can never produce two notes with one id.
+            n.source = .local
+            if notes.contains(where: { $0.id == n.id }) || pendingUndo?.note.id == n.id {
+                n.id = UUID().uuidString
+            }
             n.order = base
             base += 1
             guard NoteColor.all.indices.contains(n.color) else {

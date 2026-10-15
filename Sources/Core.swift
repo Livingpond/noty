@@ -258,6 +258,19 @@ enum Ink {
     }
 }
 
+// MARK: - Source
+
+/// Where a note's content comes from. Plain notes are local and freely
+/// editable; TickTick notes are read-only snapshots of remote tasks, and only
+/// NoteStore's controlled snapshot update may replace their bodies. The value
+/// is the durable record of a note's kind — bindings can be lost, so it must
+/// survive without them (proposal §4.1). An unknown value from a newer
+/// database maps to `.ticktick` rather than degrading to an editable note.
+enum NoteSource: String, Codable {
+    case local
+    case ticktick
+}
+
 // MARK: - Model
 
 enum NoteTextDirection: String, Codable, CaseIterable, Identifiable {
@@ -360,6 +373,7 @@ struct Note: Identifiable, Hashable {
     var pinned: Bool = false
     var textDirection: NoteTextDirection = .automatic
     var order: Double = 0
+    var source: NoteSource = .local
 
     var palette: NoteColor { NoteColor.at(color) }
 

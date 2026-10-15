@@ -43,12 +43,25 @@ enum SyncPlan {
     /// Deletion must follow from evidence that a file is gone, never from the
     /// absence of its contents.
     ///
+    /// `pausedNoteIDs` carries identities the runner has already quarantined —
+    /// cloud leftovers claiming a task note's id (proposal §8.5). They stay
+    /// excluded even when no local note backs them this pass.
+    ///
     /// The caller must also have established that the folder itself exists.
     /// With no folder every file looks deleted, and this would empty the deck.
     static func actions(notes: [Note], remote: [RemoteFile],
-                        unresolved: Set<String>, index: CloudSyncIndex) -> [Action] {
+                        unresolved: Set<String>, index: CloudSyncIndex,
+                        pausedNoteIDs: Set<String> = []) -> [Action] {
         var out: [Action] = []
-        let localIDs = Set(notes.map(\.id))
+        // Task notes are local-only displays (proposal §8.1): they leave the
+        // decision view entirely — no push, pull, adopt, conflict, deleteLocal
+        // or deleteRemote may ever name them — and files that claim their ids
+        // are left strictly alone so no pull or deleteRemote reaches a
+        // leftover cloud copy either.
+        let protectedIDs = Set(notes.filter { $0.source == .ticktick }.map(\.id))
+            .union(pausedNoteIDs)
+        let plainNotes = notes.filter { $0.source != .ticktick }
+        let localIDs = Set(plainNotes.map(\.id))
         // Group by identity first. Two documents can claim one `noty-id` —
         // duplicating a note's file copies its front matter along with its body —
         // and a last-wins dictionary made one of them vanish from the plan
@@ -60,6 +73,9 @@ enum SyncPlan {
                 adoptions.append(file.fileName)     // written from scratch elsewhere
                 continue
             }
+            // A leftover file claiming a task note's identity joins nothing:
+            // not the plan, not an adoption, not a deletion (proposal §8.5).
+            guard !protectedIDs.contains(id) else { continue }
             identified[id, default: []].append(file)
         }
 
@@ -89,7 +105,7 @@ enum SyncPlan {
             out.append(.adopt(fileName: name))
         }
 
-        for note in notes {
+        for note in plainNotes {
             let known = index.entries[note.id]
             guard let file = remoteByID[note.id] else {
                 guard let known else {
@@ -131,7 +147,8 @@ enum SyncPlan {
 
         // Identified files with no note behind them.
         for file in remote.sorted(by: { $0.fileName < $1.fileName }) {
-            guard let id = file.noteID, !localIDs.contains(id) else { continue }
+            guard let id = file.noteID, !protectedIDs.contains(id),
+                  !localIDs.contains(id) else { continue }
             out.append(index.entries[id] == nil ? .pull(fileName: file.fileName)
                                                 : .deleteRemote(fileName: file.fileName))
         }

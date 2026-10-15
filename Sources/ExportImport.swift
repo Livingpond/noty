@@ -14,6 +14,12 @@ struct StickyArchive: Codable {
     var images: [String: String]?
 }
 
+/// One note in an archive. Task notes export as plain text snapshots
+/// (proposal §4.3/§8.6): no source, no binding and no pending operation ever
+/// travels with the body, so an archive can never re-import task identity —
+/// `decodeArchive` and `NoteStore.ingest` both strip the source explicitly,
+/// and archives from before the TickTick work (which have no such notion at
+/// all) import the same way.
 struct StickyNote: Codable {
     var id: String
     var title: String
@@ -184,6 +190,11 @@ enum Transfer {
         let remapped = restoreImages(archive.images ?? [:])
         return archive.notes.map { sticky in
             var n = sticky.note
+            // Document imports create plain notes (proposal §4.3): whatever
+            // an archive carries, it never imports task-note identity. The
+            // strip is explicit on purpose — `NoteStore.ingest` repeats it,
+            // so the boundary holds even for notes that arrive by other paths.
+            n.source = .local
             if !remapped.isEmpty {
                 n.body = remapImageIDs(in: n.body, mapping: remapped)
             }
