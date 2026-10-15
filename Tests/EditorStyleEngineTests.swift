@@ -29,6 +29,8 @@ struct EditorStyleEngineTests {
         CloudSyncTests.run { check($0, $1) }
         SyncRunnerTests.run { check($0, $1) }
         ImageInteractionTests.run { check($0, $1) }
+        TickTickTests.run { check($0, $1) }
+        TickTickSyncTests.run { check($0, $1) }
         testCustomNoteTitleBehavior()
         PersistenceTests.run { check($0, $1) }
 

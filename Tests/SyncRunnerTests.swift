@@ -91,17 +91,21 @@ enum SyncRunnerTests {
     static let t0 = Date(timeIntervalSince1970: 1_757_000_000)
     static let t1 = Date(timeIntervalSince1970: 1_757_003_600)
 
-    /// A runner wired to fakes, with its index in a scratch file that is deleted
-    /// when `body` returns.
+    /// A runner wired to fakes, with its index and quarantine list in scratch
+    /// files that are deleted when `body` returns.
     static func withRunner(folder: FakeFolder, store: FakeStore,
                            _ body: (CloudSync, URL) -> Void) {
         let indexURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("noty-sync-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: indexURL) }
+        let pausedURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("noty-sync-paused-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: indexURL)
+            try? FileManager.default.removeItem(at: pausedURL) }
         let wasEnabled = Settings.cloudSyncEnabled
         Settings.cloudSyncEnabled = true
         defer { Settings.cloudSyncEnabled = wasEnabled }
-        body(CloudSync(folder: folder, store: store, indexURL: indexURL), indexURL)
+        body(CloudSync(folder: folder, store: store, indexURL: indexURL,
+                       pausedURL: pausedURL), indexURL)
     }
 
     static func note(_ id: String, title: String = "", body: String = "",
@@ -147,7 +151,11 @@ enum SyncRunnerTests {
             // The index file is lost. A fresh runner over the same folder and
             // store must recognise that the two sides already agree.
             try? FileManager.default.removeItem(at: indexURL)
-            let second = CloudSync(folder: folder, store: store, indexURL: indexURL)
+            let secondPausedURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("noty-sync-paused-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: secondPausedURL) }
+            let second = CloudSync(folder: folder, store: store, indexURL: indexURL,
+                                   pausedURL: secondPausedURL)
             second.syncNow()
 
             check(folder.conflicts.isEmpty,

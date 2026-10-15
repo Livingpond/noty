@@ -260,10 +260,21 @@ it is there to be read and pruned by hand, and never syncs back.
   colours and timestamps stay in plaintext so lists render without unsealing
   every row.
 - No account, no server, no analytics, no telemetry, no tracking SDKs.
-- **One network request, ever:** Sparkle fetches the appcast to see whether a
-  newer version exists. Nothing about your notes is sent — it is a plain GET of
-  a public XML file. Turn it off with *Check automatically* in the pill's menu,
-  and it never fires again.
+- **One network request of its own, ever:** Sparkle fetches the appcast to see
+  whether a newer version exists. Nothing about your notes is sent — it is a
+  plain GET of a public XML file. Turn it off with *Check automatically* in the
+  pill's menu, and it never fires again.
+- **TickTick sync is off until you connect it.** With no TickTick account
+  connected (Settings → TickTick), Noty sends no TickTick request at all. While
+  connected, Noty reads your lists and tasks from TickTick (roughly every 15
+  seconds while a task note is visible, every 60 seconds when they are all
+  hidden) and sends one request only when you click a task's checkbox — that
+  completion, or the restore when you uncheck it. Nothing else is ever sent;
+  deleting a task note removes only this Mac's display, never a TickTick task.
+  The personal API token lives only in the macOS Keychain — never in a file,
+  cache, log or export — and requests go only to the TickTick API host. Task
+  notes never enter the iCloud sync folder; they are local to this Mac by
+  design.
 - **iCloud sync is off until you switch it on.** With it off, none of the above
   changes: nothing is written outside `~/Library/Application Support/Noty/`.
   Switched on (Settings → Sync), Noty mirrors each note into

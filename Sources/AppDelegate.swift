@@ -27,6 +27,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Off unless the user asked for it; reload() is a no-op when it is off.
         CloudSync.shared.reload()
+
+        // The TickTick sync engine (proposal §3): serial reads, the write
+        // state machine and scheduling live inside it; the app only forwards
+        // lifecycle events through the portal. 启动 (proposal §7.1) merges into
+        // one immediate read — with no connected account the engine makes no
+        // request at all and schedules nothing.
+        let tickTickEngine = TickTickSyncEngine()
+        TickTickPortal.shared.attach(engine: tickTickEngine)
+        tickTickEngine.start()
+
+        // TickTick sync engine mount points (proposal §7.1): activation, sleep
+        // and wake forward app-level events through the portal — no polling or
+        // scheduling lives here.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(systemWillSleep(_:)),
+            name: NSWorkspace.willSleepNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(systemDidWake(_:)),
+            name: NSWorkspace.didWakeNotification, object: nil)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -41,6 +60,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// be waiting, and the poll may be up to its full interval away.
     func applicationDidBecomeActive(_ notification: Notification) {
         CloudSync.shared.syncNow()
+        // 激活立即读 (proposal §7.1): activation merges into one immediate
+        // TickTick read — merged with anything already in flight.
+        TickTickPortal.shared.applicationDidActivate()
+    }
+
+    /// 睡眠停止 (proposal §7.1): the engine stops its scheduled reads; in-flight
+    /// requests keep their unknown-result handling.
+    @objc private func systemWillSleep(_ notification: Notification) {
+        TickTickPortal.shared.systemWillSleep()
+    }
+
+    /// 唤醒立即读 (proposal §7.1): wake merges into one immediate read.
+    @objc private func systemDidWake(_ notification: Notification) {
+        TickTickPortal.shared.applicationDidWake()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
