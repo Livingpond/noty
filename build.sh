@@ -10,7 +10,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP="$ROOT/build/Noty.app"
 BIN_DIR="$ROOT/build/.noty-bin"
-SDK="$(xcrun --show-sdk-path --sdk macosx)"
+# CommandLineTools 27's default macOS SDK ships no SwiftUIMacros plugin, so
+# `@State` and friends cannot expand and the compile dies. Prefer an explicit
+# SDKROOT, then the newest SDK that still carries the plugin, then xcrun's pick.
+if [ -n "${SDKROOT:-}" ]; then
+    SDK="$SDKROOT"
+elif [ -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ]; then
+    SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+else
+    SDK="$(xcrun --show-sdk-path --sdk macosx)"
+fi
 MODE="${1:-release}"
 
 MARKETING_VERSION="${MARKETING_VERSION:-1.0.0}"

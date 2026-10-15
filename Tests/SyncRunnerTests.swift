@@ -293,7 +293,11 @@ enum SyncRunnerTests {
             check(store.notes.count == 2, "the copy must land on the deck as a second note")
             check(Set(store.notes.map(\.id)).count == 2,
                   "the two notes must not share an identity")
-            check(folder.files["Site 2.md"]?.contains("noty-id: A") == false,
+            // The fresh id is a UUID, and one hex digit in sixteen is "A" — a UUID
+            // that opens with it still satisfies `contains("noty-id: A")`, so the
+            // assertion must name the copy's own id, not the original's absence.
+            let copyID = store.notes.map(\.id).first { $0 != "A" }
+            check(folder.files["Site 2.md"]?.contains("noty-id: \(copyID ?? "?")") == true,
                   "the copy's file must be rewritten with its own identity")
             check(folder.files["Site.md"]?.contains("noty-id: A") == true,
                   "the original must keep the identity the index knows")
